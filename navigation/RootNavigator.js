@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import OnboardingScreen from '../screens/OnboardingScreen';
 import CalendarScreen from '../screens/CalendarScreen';
+import AnalyticsScreen from '../screens/AnalyticsScreen';
 import MainTabs from './MainTabs';
 import { theme } from '../config/theme';
 import { useChallenges } from '../context/ChallengesContext';
@@ -29,6 +30,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Onboarding" component={OnboardingScreen} />
       <Stack.Screen name="Main" component={MainTabs} />
       <Stack.Screen name="Calendar" component={CalendarScreen} />
+      <Stack.Screen name="Analytics" component={AnalyticsScreen} />
     </Stack.Navigator>
   );
 }

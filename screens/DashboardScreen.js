@@ -53,7 +53,12 @@ export default function DashboardScreen() {
       <ScreenHeader
         eyebrow={activeChallenge.name.toUpperCase()}
         title={strings.tabs.dashboard}
-        right={<IconButton name="calendar-outline" onPress={() => navigation.navigate('Calendar')} />}
+        right={
+          <View style={styles.headerActions}>
+            <IconButton name="stats-chart-outline" onPress={() => navigation.navigate('Analytics')} />
+            <IconButton name="calendar-outline" onPress={() => navigation.navigate('Calendar')} />
+          </View>
+        }
       />
 
       <View style={[styles.statusCard, summary.isConsistencyCompliant ? styles.statusOk : styles.statusBad]}>
@@ -149,6 +154,7 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: { flexDirection: 'row', gap: 8 },
   statusCard: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -121,3 +121,46 @@ export function getChallengeSummary(challenge) {
     targetReached: totalProfit >= profitTarget,
   };
 }
+
+/**
+ * Estadísticas de trading clásicas (win rate, profit factor, expectativa),
+ * calculadas por TRADE individual — no por día — a diferencia de las
+ * reglas de consistencia/drawdown de arriba.
+ */
+export function getTradeStats(trades) {
+  const wins = trades.filter((t) => t.amount > 0);
+  const losses = trades.filter((t) => t.amount < 0);
+  const totalProfit = wins.reduce((s, t) => s + t.amount, 0);
+  const totalLoss = losses.reduce((s, t) => s + t.amount, 0);
+  const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
+  const avgWin = wins.length ? totalProfit / wins.length : 0;
+  const avgLoss = losses.length ? totalLoss / losses.length : 0;
+  const profitFactor = totalLoss !== 0 ? Math.abs(totalProfit / totalLoss) : 0;
+  const expectancy = trades.length
+    ? (wins.length / trades.length) * avgWin + (losses.length / trades.length) * avgLoss
+    : 0;
+
+  return {
+    totalTrades: trades.length,
+    winTrades: wins.length,
+    lossTrades: losses.length,
+    totalProfit,
+    totalLoss,
+    netPnl: totalProfit + totalLoss,
+    winRate,
+    avgWin,
+    avgLoss,
+    profitFactor,
+    expectancy,
+  };
+}
+
+/**
+ * Curva de equity acumulado a partir de una lista de trades, en orden
+ * cronológico. Empieza en 0. Útil para graficar drawdown/progreso.
+ */
+export function getCumulativeCurve(trades) {
+  const sorted = [...trades].sort((a, b) => new Date(a.date) - new Date(b.date));
+  let running = 0;
+  return [0, ...sorted.map((t) => (running += t.amount))];
+}
