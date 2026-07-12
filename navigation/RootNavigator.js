@@ -6,6 +6,7 @@ import OnboardingScreen from '../screens/OnboardingScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
 import GeneralSettingsScreen from '../screens/GeneralSettingsScreen';
+import PaywallScreen from '../screens/PaywallScreen';
 import MainTabs from './MainTabs';
 import { theme } from '../config/theme';
 import { useChallenges } from '../context/ChallengesContext';
@@ -33,6 +34,7 @@ export default function RootNavigator() {
       <Stack.Screen name="Calendar" component={CalendarScreen} />
       <Stack.Screen name="Analytics" component={AnalyticsScreen} />
       <Stack.Screen name="GeneralSettings" component={GeneralSettingsScreen} />
+      <Stack.Screen name="Paywall" component={PaywallScreen} options={{ presentation: 'modal' }} />
     </Stack.Navigator>
   );
 }

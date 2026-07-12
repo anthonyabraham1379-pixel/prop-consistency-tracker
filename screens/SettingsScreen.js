@@ -14,6 +14,7 @@ import PrimaryButton from '../components/PrimaryButton';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
+import { usePremium } from '../context/PremiumContext';
 import { getTotalProfit } from '../utils/calculations';
 import { formatDate, formatMoney } from '../utils/format';
 
@@ -36,6 +37,7 @@ export default function SettingsScreen() {
   const navigation = useNavigation();
   const { activeChallenge, challenges, setActiveChallenge, updateChallenge, deleteChallenge, upgradeToFunded } =
     useChallenges();
+  const { isPremium } = usePremium();
   const [form, setForm] = useState(activeChallenge);
   const [saved, setSaved] = useState(false);
 
@@ -121,8 +123,24 @@ export default function SettingsScreen() {
             onPress={() => setActiveChallenge(c.id)}
           />
         ))}
-        <TouchableOpacity style={styles.addAccountRow} onPress={() => navigation.navigate('Onboarding')}>
-          <Ionicons name="add" size={18} color={theme.colors.accent} />
+        <TouchableOpacity
+          style={styles.addAccountRow}
+          onPress={() => {
+            if (!isPremium && challenges.length >= 1) {
+              Alert.alert(strings.premium.accountLimitTitle, strings.premium.accountLimitBody, [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: strings.premium.title, onPress: () => navigation.navigate('Paywall') },
+              ]);
+              return;
+            }
+            navigation.navigate('Onboarding');
+          }}
+        >
+          <Ionicons
+            name={!isPremium && challenges.length >= 1 ? 'lock-closed' : 'add'}
+            size={18}
+            color={theme.colors.accent}
+          />
           <Text style={styles.addAccountLabel}>Agregar cuenta nueva</Text>
         </TouchableOpacity>
       </View>

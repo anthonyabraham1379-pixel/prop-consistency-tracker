@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Linking, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -8,11 +8,13 @@ import ScreenHeader from '../components/ScreenHeader';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { usePreferences } from '../context/PreferencesContext';
+import { useAuth } from '../context/AuthContext';
+import { usePremium } from '../context/PremiumContext';
 
 const SUPPORT_EMAIL = 'a.isis.a0412@gmail.com';
 const APP_VERSION = '1.0.0';
 
-function Row({ icon, label, onPress, right, disabled, last }) {
+function Row({ icon, label, onPress, right, disabled, last, danger }) {
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -21,8 +23,10 @@ function Row({ icon, label, onPress, right, disabled, last }) {
       activeOpacity={onPress ? 0.7 : 1}
     >
       <View style={styles.rowLeft}>
-        <Ionicons name={icon} size={18} color={theme.colors.textSecondary} />
-        <Text style={[styles.rowLabel, disabled && styles.rowLabelDisabled]}>{label}</Text>
+        <Ionicons name={icon} size={18} color={danger ? theme.colors.negative : theme.colors.textSecondary} />
+        <Text style={[styles.rowLabel, disabled && styles.rowLabelDisabled, danger && styles.rowLabelDanger]}>
+          {label}
+        </Text>
       </View>
       {right}
     </TouchableOpacity>
@@ -40,9 +44,38 @@ function ComingSoonBadge() {
 export default function GeneralSettingsScreen() {
   const navigation = useNavigation();
   const { hidePnl, setHidePnl } = usePreferences();
+  const { user, signingIn, signInWithGoogle, signOut } = useAuth();
+  const { isPremium, restorePurchases } = usePremium();
+  const [restoring, setRestoring] = React.useState(false);
 
   const showComingSoon = () => {
     Alert.alert(strings.generalSettings.comingSoon, strings.generalSettings.comingSoonBody);
+  };
+
+  const handleGoogleAuth = async () => {
+    if (user) return;
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      Alert.alert(strings.generalSettings.googleLogin, e.message || strings.generalSettings.signInError);
+    }
+  };
+
+  const handleSignOutPress = () => {
+    Alert.alert(strings.generalSettings.signOutConfirmTitle, strings.generalSettings.signOutConfirmBody, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: strings.generalSettings.signOut,
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOut();
+          } catch (e) {
+            Alert.alert(strings.generalSettings.googleLogin, e.message || strings.generalSettings.signInError);
+          }
+        },
+      },
+    ]);
   };
 
   const handleContact = () => {
@@ -54,6 +87,22 @@ export default function GeneralSettingsScreen() {
       strings.generalSettings.aboutApp,
       strings.generalSettings.aboutBody.replace('{version}', APP_VERSION)
     );
+  };
+
+  const handleRestorePurchases = async () => {
+    setRestoring(true);
+    try {
+      const info = await restorePurchases();
+      const hasActive = !!info?.entitlements?.active && Object.keys(info.entitlements.active).length > 0;
+      Alert.alert(
+        strings.premium.title,
+        hasActive ? strings.generalSettings.restoreSuccess : strings.generalSettings.restoreEmpty
+      );
+    } catch (e) {
+      Alert.alert(strings.premium.title, e.message || strings.generalSettings.restoreError);
+    } finally {
+      setRestoring(false);
+    }
   };
 
   return (
@@ -79,8 +128,56 @@ export default function GeneralSettingsScreen() {
 
       <Text style={styles.sectionLabel}>{strings.generalSettings.accountSection}</Text>
       <View style={styles.card}>
-        <Row icon="logo-google" label={strings.generalSettings.googleLogin} onPress={showComingSoon} right={<ComingSoonBadge />} disabled />
-        <Row icon="star-outline" label={strings.generalSettings.premium} onPress={showComingSoon} right={<ComingSoonBadge />} disabled last />
+        <Row
+          icon="logo-google"
+          label={user ? user.email : strings.generalSettings.googleLogin}
+          onPress={user ? undefined : handleGoogleAuth}
+          last={!user}
+          right={
+            signingIn ? (
+              <ActivityIndicator color={theme.colors.accent} />
+            ) : user ? (
+              <Ionicons name="checkmark-circle" size={18} color={theme.colors.positive} />
+            ) : (
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+            )
+          }
+        />
+        {user && (
+          <View style={styles.syncNote}>
+            <Ionicons name="cloud-done-outline" size={14} color={theme.colors.textMuted} />
+            <Text style={styles.syncNoteText}>{strings.generalSettings.syncBody}</Text>
+          </View>
+        )}
+        <Row
+          icon="star-outline"
+          label={isPremium ? strings.generalSettings.premiumActive : strings.generalSettings.premium}
+          onPress={isPremium ? undefined : () => navigation.navigate('Paywall')}
+          right={
+            isPremium ? undefined : <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+          }
+        />
+        <Row
+          icon="document-text-outline"
+          label={strings.generalSettings.exportFeature}
+          onPress={showComingSoon}
+          right={<ComingSoonBadge />}
+          disabled
+        />
+        <Row
+          icon="camera-outline"
+          label={strings.generalSettings.screenshotsFeature}
+          onPress={showComingSoon}
+          right={<ComingSoonBadge />}
+          disabled
+        />
+        <Row
+          icon="refresh-outline"
+          label={strings.generalSettings.restorePurchases}
+          onPress={handleRestorePurchases}
+          right={restoring ? <ActivityIndicator color={theme.colors.accent} /> : undefined}
+          last
+        />
       </View>
 
       <Text style={styles.sectionLabel}>{strings.generalSettings.supportSection}</Text>
@@ -96,8 +193,17 @@ export default function GeneralSettingsScreen() {
           label={strings.generalSettings.aboutApp}
           onPress={handleAbout}
           right={<Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />}
-          last
+          last={!user}
         />
+        {user && (
+          <Row
+            icon="log-out-outline"
+            label={strings.generalSettings.signOut}
+            onPress={handleSignOutPress}
+            last
+            danger
+          />
+        )}
       </View>
     </Screen>
   );
@@ -120,6 +226,16 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing(5),
     overflow: 'hidden',
   },
+  syncNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  syncNoteText: { fontSize: 11, color: theme.colors.textMuted, flexShrink: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -134,6 +250,7 @@ const styles = StyleSheet.create({
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   rowLabel: { fontSize: 14, color: theme.colors.textPrimary },
   rowLabelDisabled: { color: theme.colors.textSecondary },
+  rowLabelDanger: { color: theme.colors.negative, fontWeight: '600' },
   comingSoonBadge: {
     backgroundColor: theme.colors.background,
     borderRadius: 6,

@@ -13,6 +13,7 @@ import AddDayModal from '../components/AddDayModal';
 import EditTradeModal from '../components/EditTradeModal';
 import BreachModal from '../components/BreachModal';
 import AccountSwitcherModal from '../components/AccountSwitcherModal';
+import AdBanner from '../components/AdBanner';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
@@ -187,6 +188,8 @@ export default function DashboardScreen() {
       ) : null}
 
       <PrimaryButton label="+ Registrar día" onPress={() => setModalVisible(true)} style={styles.registerButton} />
+
+      <AdBanner />
 
       <AddDayModal
         visible={modalVisible}

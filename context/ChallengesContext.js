@@ -1,7 +1,13 @@
-import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../config/supabase';
+import { useAuth } from './AuthContext';
 
 const STORAGE_KEY = 'propConsistency.challenges';
+
+function nowIso() {
+  return new Date().toISOString();
+}
 
 // Compatibilidad con datos guardados antes de que "days" pasara a llamarse
 // "trades" (un challenge podía tener trades individuales o un solo total
@@ -27,6 +33,9 @@ function migrateChallenge(challenge) {
   }
   if (migrated.breachAcknowledged === undefined) {
     migrated = { ...migrated, breachAcknowledged: false };
+  }
+  if (!migrated.updatedAt) {
+    migrated = { ...migrated, updatedAt: migrated.createdAt ?? nowIso() };
   }
   return migrated;
 }
@@ -58,7 +67,7 @@ function reducer(state, action) {
       return {
         ...state,
         challenges: state.challenges.map((c) =>
-          c.id === action.payload.id ? { ...c, ...action.payload.updates } : c
+          c.id === action.payload.id ? { ...c, ...action.payload.updates, updatedAt: nowIso() } : c
         ),
       };
     case 'DELETE_CHALLENGE': {
@@ -75,7 +84,7 @@ function reducer(state, action) {
         ...state,
         challenges: state.challenges.map((c) =>
           c.id === action.payload.challengeId
-            ? { ...c, trades: [...c.trades, action.payload.trade] }
+            ? { ...c, trades: [...c.trades, action.payload.trade], updatedAt: nowIso() }
             : c
         ),
       };
@@ -89,6 +98,7 @@ function reducer(state, action) {
                 trades: c.trades.map((t) =>
                   t.id === action.payload.tradeId ? { ...t, ...action.payload.updates } : t
                 ),
+                updatedAt: nowIso(),
               }
             : c
         ),
@@ -98,7 +108,7 @@ function reducer(state, action) {
         ...state,
         challenges: state.challenges.map((c) =>
           c.id === action.payload.challengeId
-            ? { ...c, trades: c.trades.filter((t) => t.id !== action.payload.tradeId) }
+            ? { ...c, trades: c.trades.filter((t) => t.id !== action.payload.tradeId), updatedAt: nowIso() }
             : c
         ),
       };
@@ -112,10 +122,11 @@ function reducer(state, action) {
                 status: 'funded',
                 archivedPhases: [
                   ...c.archivedPhases,
-                  { trades: c.trades, archivedAt: new Date().toISOString(), outcome: 'funded' },
+                  { trades: c.trades, archivedAt: nowIso(), outcome: 'funded' },
                 ],
                 trades: [],
                 breachAcknowledged: false,
+                updatedAt: nowIso(),
               }
             : c
         ),
@@ -129,10 +140,11 @@ function reducer(state, action) {
                 ...c,
                 archivedPhases: [
                   ...c.archivedPhases,
-                  { trades: c.trades, archivedAt: new Date().toISOString(), outcome: 'failed' },
+                  { trades: c.trades, archivedAt: nowIso(), outcome: 'failed' },
                 ],
                 trades: [],
                 breachAcknowledged: false,
+                updatedAt: nowIso(),
               }
             : c
         ),
@@ -141,9 +153,27 @@ function reducer(state, action) {
       return {
         ...state,
         challenges: state.challenges.map((c) =>
-          c.id === action.payload.challengeId ? { ...c, breachAcknowledged: true } : c
+          c.id === action.payload.challengeId ? { ...c, breachAcknowledged: true, updatedAt: nowIso() } : c
         ),
       };
+    case 'MERGE_REMOTE': {
+      const merged = [...state.challenges];
+      for (const remote of action.payload.remoteChallenges) {
+        const idx = merged.findIndex((c) => c.id === remote.id);
+        if (idx === -1) {
+          merged.push(remote);
+        } else {
+          const localTime = new Date(merged[idx].updatedAt ?? 0).getTime();
+          const remoteTime = new Date(remote.updatedAt ?? 0).getTime();
+          if (remoteTime > localTime) merged[idx] = remote;
+        }
+      }
+      return {
+        ...state,
+        challenges: merged,
+        activeChallengeId: state.activeChallengeId ?? merged[0]?.id ?? null,
+      };
+    }
     default:
       return state;
   }
@@ -152,7 +182,9 @@ function reducer(state, action) {
 const ChallengesContext = createContext(null);
 
 export function ChallengesProvider({ children }) {
+  const { user } = useAuth();
   const [state, dispatch] = useReducer(reducer, initialState);
+  const hasPulledForUserRef = useRef(null);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)
@@ -172,11 +204,53 @@ export function ChallengesProvider({ children }) {
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ challenges, activeChallengeId })).catch(() => {});
   }, [state.loading, state.challenges, state.activeChallengeId]);
 
+  // Al iniciar sesión, trae los challenges guardados en la nube y los
+  // fusiona con los locales (el más reciente por updatedAt gana).
+  useEffect(() => {
+    if (!user) {
+      hasPulledForUserRef.current = null;
+      return;
+    }
+    if (state.loading) return;
+    if (hasPulledForUserRef.current === user.id) return;
+    hasPulledForUserRef.current = user.id;
+
+    supabase
+      .from('challenges')
+      .select('data')
+      .eq('user_id', user.id)
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const remoteChallenges = data.map((row) => row.data);
+        if (remoteChallenges.length > 0) {
+          dispatch({ type: 'MERGE_REMOTE', payload: { remoteChallenges } });
+        }
+      });
+  }, [user, state.loading]);
+
+  // Mientras haya sesión, sube cualquier cambio local a Supabase (con
+  // un pequeño debounce para no disparar una escritura por cada tecla).
+  useEffect(() => {
+    if (!user || state.loading) return;
+    const timeout = setTimeout(() => {
+      state.challenges.forEach((c) => {
+        supabase
+          .from('challenges')
+          .upsert({ id: c.id, user_id: user.id, data: c, updated_at: c.updatedAt ?? nowIso() })
+          .then(({ error }) => {
+            if (error) console.warn('Error al sincronizar challenge:', error.message);
+          });
+      });
+    }, 1500);
+    return () => clearTimeout(timeout);
+  }, [user, state.challenges, state.loading]);
+
   const addChallenge = (formValues) => {
     const challenge = {
       ...formValues,
       id: String(Date.now()),
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
       trades: [],
       archivedPhases: [],
       breachAcknowledged: false,

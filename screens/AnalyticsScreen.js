@@ -12,6 +12,7 @@ import Sparkline from '../components/Sparkline';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
+import { usePremium } from '../context/PremiumContext';
 import { getTradeStats, getCumulativeCurve } from '../utils/calculations';
 import { formatMoney } from '../utils/format';
 
@@ -48,11 +49,12 @@ function filterTradesByPeriod(trades, period) {
 
 export default function AnalyticsScreen() {
   const navigation = useNavigation();
-  const { challenges, activeChallenge } = useChallenges();
-  const [selectedChallengeId, setSelectedChallengeId] = useState(activeChallenge?.id ?? null);
-  const [period, setPeriod] = useState('all');
+  const { challenges, activeChallenge, setActiveChallenge } = useChallenges();
+  const { isPremium } = usePremium();
+  const [period, setPeriod] = useState('month');
+  const lockedPeriods = isPremium ? [] : ['year', 'all'];
 
-  const challenge = challenges.find((c) => c.id === selectedChallengeId) ?? activeChallenge;
+  const challenge = activeChallenge;
 
   const trades = useMemo(() => filterTradesByPeriod(challenge?.trades ?? [], period), [challenge, period]);
   const stats = useMemo(() => getTradeStats(trades), [trades]);
@@ -89,13 +91,20 @@ export default function AnalyticsScreen() {
               key={c.id}
               label={c.name}
               active={c.id === challenge.id}
-              onPress={() => setSelectedChallengeId(c.id)}
+              onPress={() => setActiveChallenge(c.id)}
             />
           ))}
         </View>
       )}
 
-      <SegmentedControl options={PERIOD_OPTIONS} value={period} onChange={setPeriod} style={styles.periodControl} />
+      <SegmentedControl
+        options={PERIOD_OPTIONS}
+        value={period}
+        onChange={setPeriod}
+        style={styles.periodControl}
+        lockedValues={lockedPeriods}
+        onLockedPress={() => navigation.navigate('Paywall')}
+      />
 
       {stats.totalTrades === 0 ? (
         <Text style={styles.emptyText}>{strings.analytics.emptyState}</Text>

@@ -5,6 +5,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ChallengesProvider } from './context/ChallengesContext';
 import { PreferencesProvider } from './context/PreferencesContext';
+import { AuthProvider } from './context/AuthContext';
+import { PremiumProvider } from './context/PremiumContext';
 import RootNavigator from './navigation/RootNavigator';
 import { theme } from './config/theme';
 
@@ -24,12 +26,16 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <PreferencesProvider>
-        <ChallengesProvider>
-          <NavigationContainer theme={navigationTheme}>
-            <StatusBar style="light" />
-            <RootNavigator />
-          </NavigationContainer>
-        </ChallengesProvider>
+        <AuthProvider>
+          <PremiumProvider>
+            <ChallengesProvider>
+              <NavigationContainer theme={navigationTheme}>
+                <StatusBar style="light" />
+                <RootNavigator />
+              </NavigationContainer>
+            </ChallengesProvider>
+          </PremiumProvider>
+        </AuthProvider>
       </PreferencesProvider>
     </SafeAreaProvider>
   );

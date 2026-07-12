@@ -12,6 +12,7 @@ import EditTradeModal from '../components/EditTradeModal';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
+import { usePremium } from '../context/PremiumContext';
 import { groupTradesByDay, getTotalProfit } from '../utils/calculations';
 import { formatDate, formatMoney } from '../utils/format';
 
@@ -47,14 +48,15 @@ function getMonthTrades(trades, year, month) {
 
 export default function CalendarScreen() {
   const navigation = useNavigation();
-  const { challenges, activeChallenge, updateTrade, deleteTrade } = useChallenges();
-  const [selectedChallengeId, setSelectedChallengeId] = useState(activeChallenge?.id ?? null);
+  const { challenges, activeChallenge, setActiveChallenge, updateTrade, deleteTrade } = useChallenges();
+  const { isPremium } = usePremium();
   const [period, setPeriod] = useState('month');
+  const lockedPeriods = isPremium ? [] : ['year', 'all'];
   const [cursorDate, setCursorDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(null);
   const [editingTrade, setEditingTrade] = useState(null);
 
-  const challenge = challenges.find((c) => c.id === selectedChallengeId) ?? activeChallenge;
+  const challenge = activeChallenge;
   const trades = challenge?.trades ?? [];
 
   const dayTotalsMap = useMemo(() => {
@@ -131,13 +133,20 @@ export default function CalendarScreen() {
               key={c.id}
               label={c.name}
               active={c.id === challenge.id}
-              onPress={() => setSelectedChallengeId(c.id)}
+              onPress={() => setActiveChallenge(c.id)}
             />
           ))}
         </View>
       )}
 
-      <SegmentedControl options={PERIOD_OPTIONS} value={period} onChange={handlePeriodChange} style={styles.periodControl} />
+      <SegmentedControl
+        options={PERIOD_OPTIONS}
+        value={period}
+        onChange={handlePeriodChange}
+        style={styles.periodControl}
+        lockedValues={lockedPeriods}
+        onLockedPress={() => navigation.navigate('Paywall')}
+      />
 
       {headerLabel && (
         <View style={styles.navRow}>

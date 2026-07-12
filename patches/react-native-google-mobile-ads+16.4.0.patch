@@ -1,0 +1,22 @@
+diff --git a/node_modules/react-native-google-mobile-ads/android/build.gradle b/node_modules/react-native-google-mobile-ads/android/build.gradle
+index 8a31e69..94457a4 100644
+--- a/node_modules/react-native-google-mobile-ads/android/build.gradle
++++ b/node_modules/react-native-google-mobile-ads/android/build.gradle
+@@ -16,7 +16,7 @@ buildscript {
+ 
+     dependencies {
+       classpath("com.android.tools.build:gradle:7.0.4")
+-      classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion', '1.8.22')}"
++      classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0"
+     }
+   } else {
+     repositories {
+@@ -24,7 +24,7 @@ buildscript {
+     }
+ 
+     dependencies {
+-      classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion', '1.8.22')}"
++      classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0"
+     }
+   }
+ }
