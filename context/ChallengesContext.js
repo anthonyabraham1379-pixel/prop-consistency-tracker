@@ -5,11 +5,30 @@ const STORAGE_KEY = 'propConsistency.challenges';
 
 // Compatibilidad con datos guardados antes de que "days" pasara a llamarse
 // "trades" (un challenge podía tener trades individuales o un solo total
-// por día bajo el nombre viejo).
+// por día bajo el nombre viejo), y antes de que "evaluationArchive" (un solo
+// archivo) pasara a ser "archivedPhases" (una lista, para poder reiniciar
+// más de una vez).
 function migrateChallenge(challenge) {
-  if (challenge.trades) return challenge;
-  const { days, ...rest } = challenge;
-  return { ...rest, trades: days ?? [] };
+  let migrated = challenge;
+  if (!migrated.trades) {
+    const { days, ...rest } = migrated;
+    migrated = { ...rest, trades: days ?? [] };
+  }
+  if (!migrated.status) {
+    migrated = { ...migrated, status: 'evaluation' };
+  }
+  if (!migrated.archivedPhases) {
+    const legacyArchive = migrated.evaluationArchive;
+    const { evaluationArchive, ...rest } = migrated;
+    migrated = {
+      ...rest,
+      archivedPhases: legacyArchive ? [{ ...legacyArchive, outcome: 'funded' }] : [],
+    };
+  }
+  if (migrated.breachAcknowledged === undefined) {
+    migrated = { ...migrated, breachAcknowledged: false };
+  }
+  return migrated;
 }
 
 const initialState = {
@@ -83,6 +102,48 @@ function reducer(state, action) {
             : c
         ),
       };
+    case 'UPGRADE_TO_FUNDED':
+      return {
+        ...state,
+        challenges: state.challenges.map((c) =>
+          c.id === action.payload.challengeId
+            ? {
+                ...c,
+                status: 'funded',
+                archivedPhases: [
+                  ...c.archivedPhases,
+                  { trades: c.trades, archivedAt: new Date().toISOString(), outcome: 'funded' },
+                ],
+                trades: [],
+                breachAcknowledged: false,
+              }
+            : c
+        ),
+      };
+    case 'RESTART_EVALUATION':
+      return {
+        ...state,
+        challenges: state.challenges.map((c) =>
+          c.id === action.payload.challengeId
+            ? {
+                ...c,
+                archivedPhases: [
+                  ...c.archivedPhases,
+                  { trades: c.trades, archivedAt: new Date().toISOString(), outcome: 'failed' },
+                ],
+                trades: [],
+                breachAcknowledged: false,
+              }
+            : c
+        ),
+      };
+    case 'ACK_BREACH':
+      return {
+        ...state,
+        challenges: state.challenges.map((c) =>
+          c.id === action.payload.challengeId ? { ...c, breachAcknowledged: true } : c
+        ),
+      };
     default:
       return state;
   }
@@ -117,6 +178,8 @@ export function ChallengesProvider({ children }) {
       id: String(Date.now()),
       createdAt: new Date().toISOString(),
       trades: [],
+      archivedPhases: [],
+      breachAcknowledged: false,
     };
     dispatch({ type: 'ADD_CHALLENGE', payload: challenge });
     return challenge;
@@ -139,6 +202,12 @@ export function ChallengesProvider({ children }) {
   const deleteTrade = (challengeId, tradeId) =>
     dispatch({ type: 'DELETE_TRADE', payload: { challengeId, tradeId } });
 
+  const upgradeToFunded = (challengeId) => dispatch({ type: 'UPGRADE_TO_FUNDED', payload: { challengeId } });
+
+  const restartEvaluation = (challengeId) => dispatch({ type: 'RESTART_EVALUATION', payload: { challengeId } });
+
+  const acknowledgeBreach = (challengeId) => dispatch({ type: 'ACK_BREACH', payload: { challengeId } });
+
   const activeChallenge = useMemo(
     () => state.challenges.find((c) => c.id === state.activeChallengeId) ?? null,
     [state.challenges, state.activeChallengeId]
@@ -155,6 +224,9 @@ export function ChallengesProvider({ children }) {
     addTrade,
     updateTrade,
     deleteTrade,
+    upgradeToFunded,
+    restartEvaluation,
+    acknowledgeBreach,
   };
 
   return <ChallengesContext.Provider value={value}>{children}</ChallengesContext.Provider>;

@@ -9,14 +9,22 @@ import FieldLabel from '../components/FieldLabel';
 import NumField from '../components/NumField';
 import SegmentedControl from '../components/SegmentedControl';
 import PresetCard from '../components/PresetCard';
+import IconButton from '../components/IconButton';
 import PrimaryButton from '../components/PrimaryButton';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
+import { getTotalProfit } from '../utils/calculations';
+import { formatDate, formatMoney } from '../utils/format';
 
 const CONSISTENCY_MODE_OPTIONS = [
   { label: strings.onboarding.consistencyNone, value: 'none' },
   { label: strings.onboarding.consistencyWithLimit, value: 'limit' },
+];
+
+const ACCOUNT_STATUS_OPTIONS = [
+  { label: strings.accountStatus.evaluation, value: 'evaluation' },
+  { label: strings.accountStatus.funded, value: 'funded' },
 ];
 
 const DRAWDOWN_TYPE_OPTIONS = [
@@ -26,7 +34,8 @@ const DRAWDOWN_TYPE_OPTIONS = [
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { activeChallenge, challenges, setActiveChallenge, updateChallenge, deleteChallenge } = useChallenges();
+  const { activeChallenge, challenges, setActiveChallenge, updateChallenge, deleteChallenge, upgradeToFunded } =
+    useChallenges();
   const [form, setForm] = useState(activeChallenge);
   const [saved, setSaved] = useState(false);
 
@@ -51,16 +60,27 @@ export default function SettingsScreen() {
   };
 
   const handleSave = () => {
+    // No se incluyen status/evaluationArchive/trades aquí — esos los maneja
+    // exclusivamente upgradeToFunded, para no pisarlos con datos viejos del form.
     updateChallenge(activeChallenge.id, {
-      ...form,
+      name: form.name,
       accountSize: Number(form.accountSize) || 0,
       profitTarget: Number(form.profitTarget) || 0,
       maxDrawdown: Number(form.maxDrawdown) || 0,
       minProfitableDays: Number(form.minProfitableDays) || 0,
+      drawdownType: form.drawdownType,
       consistencyLimitPct: form.consistencyLimitPct === null ? null : Number(form.consistencyLimitPct) || 0,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  };
+
+  const handleStatusChange = (value) => {
+    if (value !== 'funded' || activeChallenge.status === 'funded') return;
+    Alert.alert(strings.accountStatus.confirmTitle, strings.accountStatus.confirmBody, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: strings.accountStatus.confirmAction, onPress: () => upgradeToFunded(activeChallenge.id) },
+    ]);
   };
 
   const handleDelete = () => {
@@ -86,7 +106,10 @@ export default function SettingsScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title={strings.tabs.settings} />
+      <ScreenHeader
+        title={strings.tabs.settings}
+        right={<IconButton name="settings-outline" onPress={() => navigation.navigate('GeneralSettings')} />}
+      />
 
       <FieldLabel>Tus cuentas</FieldLabel>
       <View style={styles.accountList}>
@@ -107,6 +130,42 @@ export default function SettingsScreen() {
       <View style={styles.divider} />
 
       <ScreenHeader eyebrow="EDITAR PARÁMETROS" title={activeChallenge.name} />
+
+      <FieldLabel>{strings.accountStatus.label}</FieldLabel>
+      {activeChallenge.status === 'funded' ? (
+        <View style={styles.statusBadge}>
+          <Ionicons name="checkmark-circle" size={16} color={theme.colors.positive} />
+          <Text style={styles.statusBadgeText}>{strings.accountStatus.funded}</Text>
+        </View>
+      ) : (
+        <SegmentedControl
+          options={ACCOUNT_STATUS_OPTIONS}
+          value={activeChallenge.status}
+          onChange={handleStatusChange}
+          style={styles.statusControl}
+        />
+      )}
+
+      {activeChallenge.archivedPhases.length > 0 && (
+        <View style={styles.archiveSection}>
+          <FieldLabel>{strings.accountStatus.archivesLabel}</FieldLabel>
+          {activeChallenge.archivedPhases.map((phase, index) => (
+            <View key={index} style={styles.archiveCard}>
+              <Text style={styles.archiveTitle}>
+                {phase.outcome === 'funded'
+                  ? strings.accountStatus.archiveTitleFunded
+                  : strings.accountStatus.archiveTitleFailed}
+              </Text>
+              <Text style={styles.archiveBody}>
+                {strings.accountStatus.archiveBody
+                  .replace('{date}', formatDate(phase.archivedAt))
+                  .replace('{profit}', formatMoney(getTotalProfit(phase.trades)))
+                  .replace('{count}', String(phase.trades.length))}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       <FieldLabel>{strings.onboarding.nameLabel}</FieldLabel>
       <TextInput
@@ -185,6 +244,32 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   accountList: { marginBottom: theme.spacing(2) },
+  statusControl: { marginBottom: theme.spacing(4) },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(74,222,128,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(74,222,128,0.3)',
+    borderRadius: theme.radius.md,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginBottom: theme.spacing(4),
+  },
+  statusBadgeText: { color: theme.colors.positive, fontWeight: '700', fontSize: 13 },
+  archiveSection: { marginBottom: theme.spacing(2) },
+  archiveCard: {
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing(3),
+    marginBottom: theme.spacing(4),
+  },
+  archiveTitle: { fontSize: 13, fontWeight: '700', color: theme.colors.textPrimary, marginBottom: 4 },
+  archiveBody: { fontSize: 12, color: theme.colors.textSecondary, lineHeight: 17 },
   addAccountRow: {
     flexDirection: 'row',
     alignItems: 'center',

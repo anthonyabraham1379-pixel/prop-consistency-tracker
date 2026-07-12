@@ -13,6 +13,7 @@ import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { EMPTY_CHALLENGE, FIRM_PRESETS } from '../config/defaultParams';
 import { useChallenges } from '../context/ChallengesContext';
+import { usePreferences } from '../context/PreferencesContext';
 
 const CONSISTENCY_MODE_OPTIONS = [
   { label: strings.onboarding.consistencyNone, value: 'none' },
@@ -27,6 +28,7 @@ const DRAWDOWN_TYPE_OPTIONS = [
 export default function OnboardingScreen() {
   const navigation = useNavigation();
   const { addChallenge } = useChallenges();
+  const { hasSeenGuide, setHasSeenGuide } = usePreferences();
   const [form, setForm] = useState(EMPTY_CHALLENGE);
   const [presetIndex, setPresetIndex] = useState(null);
 
@@ -77,14 +79,25 @@ export default function OnboardingScreen() {
         onBack={navigation.canGoBack() ? navigation.goBack : undefined}
       />
 
+      {!hasSeenGuide && (
+        <View style={styles.guideCard}>
+          <Text style={styles.guideTitle}>{strings.onboarding.guideTitle}</Text>
+          <Text style={styles.guideBody}>{strings.onboarding.guideBody}</Text>
+          <Text style={styles.guideDismiss} onPress={() => setHasSeenGuide(true)}>
+            {strings.onboarding.guideDismiss}
+          </Text>
+        </View>
+      )}
+
       <FieldLabel>{strings.onboarding.presetLabel}</FieldLabel>
-      <View style={styles.presetList}>
+      <View style={styles.presetGrid}>
         {FIRM_PRESETS.map((preset, index) => (
           <PresetCard
             key={preset.label}
             label={preset.label}
             active={presetIndex === index}
             onPress={() => applyPreset(index)}
+            grid
           />
         ))}
       </View>
@@ -107,6 +120,7 @@ export default function OnboardingScreen() {
           value={form.accountSize}
           onChange={updateField('accountSize')}
           prefix="$"
+          placeholder={strings.onboarding.accountSizePlaceholder}
           style={styles.rowItem}
         />
         <NumField
@@ -114,6 +128,7 @@ export default function OnboardingScreen() {
           value={form.profitTarget}
           onChange={updateField('profitTarget')}
           prefix="$"
+          placeholder={strings.onboarding.profitTargetPlaceholder}
           style={styles.rowItem}
         />
       </View>
@@ -123,12 +138,14 @@ export default function OnboardingScreen() {
           value={form.maxDrawdown}
           onChange={updateField('maxDrawdown')}
           prefix="$"
+          placeholder={strings.onboarding.maxDrawdownPlaceholder}
           style={styles.rowItem}
         />
         <NumField
           label={strings.onboarding.minProfitableDaysLabel}
           value={form.minProfitableDays}
           onChange={updateField('minProfitableDays')}
+          placeholder={strings.onboarding.minProfitableDaysPlaceholder}
           style={styles.rowItem}
         />
       </View>
@@ -167,7 +184,18 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  presetList: { marginBottom: 8 },
+  guideCard: {
+    backgroundColor: 'rgba(94,179,246,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(94,179,246,0.3)',
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing(4),
+    marginBottom: theme.spacing(5),
+  },
+  guideTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.textPrimary, marginBottom: 6 },
+  guideBody: { fontSize: 12.5, color: theme.colors.textSecondary, lineHeight: 18, marginBottom: 10 },
+  guideDismiss: { fontSize: 13, fontWeight: '700', color: theme.colors.accent, textAlign: 'right' },
+  presetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   presetDisclaimer: {
     fontSize: 11.5,
     color: theme.colors.textMuted,

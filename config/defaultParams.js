@@ -5,14 +5,17 @@
 export const EMPTY_CHALLENGE = {
   id: null,
   name: '',
-  accountSize: 100000,
-  profitTarget: 6000,
-  maxDrawdown: 3000,
+  accountSize: '',
+  profitTarget: '',
+  maxDrawdown: '',
   drawdownType: 'static', // 'static' | 'trailing'
-  consistencyLimitPct: 40, // null = sin regla de consistencia
-  minProfitableDays: 3,
+  consistencyLimitPct: null, // null = sin regla de consistencia
+  minProfitableDays: '',
   suggestedDailyGoal: null, // se puede calcular o dejar que el usuario lo escriba
   createdAt: null,
+  status: 'evaluation', // 'evaluation' | 'funded'
+  archivedPhases: [], // [{ trades, archivedAt, outcome: 'funded' | 'failed' }]
+  breachAcknowledged: false,
   trades: [],
 };
 

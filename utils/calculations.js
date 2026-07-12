@@ -66,13 +66,43 @@ export function isConsistencyCompliant(trades, consistencyLimitPct, profitTarget
 }
 
 /**
- * Drawdown máximo alcanzado (peak-to-trough) sobre la curva de balance
- * acumulado por día. Sirve tanto para drawdown estático como referencia
- * visual en trailing (el cálculo exacto de trailing depende de reglas
- * propias de cada firm y puede refinarse por challenge más adelante).
+ * Ganancia acumulada máxima alcanzada (high-water mark) a lo largo de la
+ * curva de balance por día. Es la referencia que usa el drawdown trailing.
  */
-export function getMaxDrawdownUsed(trades) {
+export function getPeakProfit(trades) {
+  const days = groupTradesByDay(trades);
+  let running = 0;
+  let peak = 0;
+  for (const d of days) {
+    running += d.amount;
+    if (running > peak) peak = running;
+  }
+  return peak;
+}
+
+/**
+ * Drawdown máximo alcanzado, según el tipo de cuenta:
+ * - 'trailing': peak-to-trough — el piso SUBE con el balance más alto
+ *   alcanzado. Romper por debajo del último máximo cuenta como drawdown,
+ *   aunque el balance total siga siendo positivo.
+ * - 'static': el piso queda FIJO en el balance inicial de la cuenta — solo
+ *   cuenta cuánto has caído por debajo de ese punto de partida, sin
+ *   importar qué tan alto hayas llegado.
+ */
+export function getMaxDrawdownUsed(trades, drawdownType = 'trailing') {
   const days = groupTradesByDay(trades); // ya viene ordenado ascendente
+
+  if (drawdownType === 'static') {
+    let running = 0;
+    let maxDD = 0;
+    for (const d of days) {
+      running += d.amount;
+      const dd = Math.max(0, -running);
+      if (dd > maxDD) maxDD = dd;
+    }
+    return maxDD;
+  }
+
   let running = 0;
   let peak = 0;
   let maxDD = 0;
@@ -85,8 +115,17 @@ export function getMaxDrawdownUsed(trades) {
   return maxDD;
 }
 
-export function isDrawdownBreached(trades, maxDrawdown) {
-  return getMaxDrawdownUsed(trades) >= maxDrawdown;
+export function isDrawdownBreached(trades, maxDrawdown, drawdownType = 'trailing') {
+  return getMaxDrawdownUsed(trades, drawdownType) >= maxDrawdown;
+}
+
+/**
+ * Piso actual de drawdown, en balance de cuenta (accountSize + profit).
+ * En trailing sube con el máximo histórico; en estático queda fijo.
+ */
+export function getDrawdownFloor(trades, accountSize, maxDrawdown, drawdownType = 'trailing') {
+  const anchor = drawdownType === 'static' ? 0 : getPeakProfit(trades);
+  return accountSize + anchor - maxDrawdown;
 }
 
 export function getTargetProgressPct(trades, profitTarget) {
@@ -99,7 +138,7 @@ export function getTargetProgressPct(trades, profitTarget) {
  * Resumen completo de un challenge — lo que consume el dashboard.
  */
 export function getChallengeSummary(challenge) {
-  const { trades, profitTarget, maxDrawdown, consistencyLimitPct, minProfitableDays } = challenge;
+  const { trades, accountSize, profitTarget, maxDrawdown, drawdownType, consistencyLimitPct, minProfitableDays } = challenge;
   const totalProfit = getTotalProfit(trades);
   const profitableDays = getProfitableDays(trades);
   const consistencyPct = getConsistencyPct(trades, profitTarget);
@@ -114,9 +153,10 @@ export function getChallengeSummary(challenge) {
     bestDay: getBestDay(trades),
     consistencyPct,
     isConsistencyCompliant: isConsistencyCompliant(trades, consistencyLimitPct, profitTarget),
-    maxDrawdownUsed: getMaxDrawdownUsed(trades),
+    maxDrawdownUsed: getMaxDrawdownUsed(trades, drawdownType),
     maxDrawdown,
-    drawdownBreached: isDrawdownBreached(trades, maxDrawdown),
+    drawdownFloor: getDrawdownFloor(trades, accountSize, maxDrawdown, drawdownType),
+    drawdownBreached: isDrawdownBreached(trades, maxDrawdown, drawdownType),
     targetProgressPct: getTargetProgressPct(trades, profitTarget),
     targetReached: totalProfit >= profitTarget,
   };

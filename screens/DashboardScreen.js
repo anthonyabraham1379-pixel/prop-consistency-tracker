@@ -11,17 +11,33 @@ import FieldLabel from '../components/FieldLabel';
 import IconButton from '../components/IconButton';
 import AddDayModal from '../components/AddDayModal';
 import EditTradeModal from '../components/EditTradeModal';
+import BreachModal from '../components/BreachModal';
+import AccountSwitcherModal from '../components/AccountSwitcherModal';
 import { theme } from '../config/theme';
 import { strings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
+import { usePreferences } from '../context/PreferencesContext';
 import { getChallengeSummary } from '../utils/calculations';
 import { formatDate, formatMoney } from '../utils/format';
 
 export default function DashboardScreen() {
   const navigation = useNavigation();
-  const { activeChallenge, challenges, addTrade, updateTrade, deleteTrade } = useChallenges();
+  const {
+    activeChallenge,
+    challenges,
+    addTrade,
+    updateTrade,
+    deleteTrade,
+    setActiveChallenge,
+    restartEvaluation,
+    acknowledgeBreach,
+    deleteChallenge,
+  } = useChallenges();
+  const { hidePnl } = usePreferences();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingTrade, setEditingTrade] = useState(null);
+  const [switcherVisible, setSwitcherVisible] = useState(false);
+  const money = (value) => (hidePnl ? '•••••' : formatMoney(value));
 
   if (!activeChallenge) {
     return (
@@ -35,6 +51,10 @@ export default function DashboardScreen() {
   const summary = getChallengeSummary(activeChallenge);
   const limit = activeChallenge.consistencyLimitPct;
   const trades = activeChallenge.trades;
+  const isFunded = activeChallenge.status === 'funded';
+  const evaluationPassed =
+    summary.targetReached && summary.isConsistencyCompliant && !summary.drawdownBreached && summary.meetsMinDays;
+  const showUpgradeCta = evaluationPassed && !isFunded;
 
   const handleAddTrade = (amount, challengeIds, date) => {
     challengeIds.forEach((id) => addTrade(id, { amount, date }));
@@ -48,11 +68,24 @@ export default function DashboardScreen() {
     deleteTrade(activeChallenge.id, editingTrade.id);
   };
 
+  const showBreachModal = summary.drawdownBreached && !activeChallenge.breachAcknowledged;
+
+  const handleRestart = () => restartEvaluation(activeChallenge.id);
+  const handleSaveBreach = () => acknowledgeBreach(activeChallenge.id);
+  const handleDeleteBreach = () => {
+    const wasLast = challenges.length <= 1;
+    deleteChallenge(activeChallenge.id);
+    if (wasLast) {
+      navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+    }
+  };
+
   return (
     <Screen>
       <ScreenHeader
-        eyebrow={activeChallenge.name.toUpperCase()}
+        eyebrow={`${activeChallenge.name.toUpperCase()}${isFunded ? ` · ${strings.accountStatus.badge}` : ''}`}
         title={strings.tabs.dashboard}
+        onEyebrowPress={challenges.length > 1 ? () => setSwitcherVisible(true) : undefined}
         right={
           <View style={styles.headerActions}>
             <IconButton name="stats-chart-outline" onPress={() => navigation.navigate('Analytics')} />
@@ -60,6 +93,23 @@ export default function DashboardScreen() {
           </View>
         }
       />
+
+      {showUpgradeCta && (
+        <View style={styles.upgradeCard}>
+          <Ionicons name="trophy" size={24} color={theme.colors.warning} />
+          <View style={styles.upgradeTextWrap}>
+            <Text style={styles.upgradeTitle}>{strings.accountStatus.completedTitle}</Text>
+            <Text style={styles.upgradeBody}>{strings.accountStatus.completedBody}</Text>
+          </View>
+        </View>
+      )}
+      {showUpgradeCta && (
+        <PrimaryButton
+          label={strings.accountStatus.upgradeCta}
+          onPress={() => navigation.navigate('Settings')}
+          style={styles.upgradeButton}
+        />
+      )}
 
       <View style={[styles.statusCard, summary.isConsistencyCompliant ? styles.statusOk : styles.statusBad]}>
         <Ionicons
@@ -82,18 +132,23 @@ export default function DashboardScreen() {
       </View>
 
       <View style={styles.grid}>
-        <MetricCard label="Ganancia total" value={formatMoney(summary.totalProfit)} accent={theme.colors.positive} />
+        <MetricCard label="Ganancia total" value={money(summary.totalProfit)} accent={theme.colors.positive} />
         <MetricCard
           label="Progreso a meta"
           value={`${summary.targetProgressPct.toFixed(0)}%`}
-          subValue={`${formatMoney(summary.totalProfit)} / ${formatMoney(activeChallenge.profitTarget)}`}
+          subValue={`${money(summary.totalProfit)} / ${money(activeChallenge.profitTarget)}`}
           accent={theme.colors.accent}
           barPct={summary.targetProgressPct}
         />
-        <MetricCard label="Mejor día" value={formatMoney(summary.bestDay)} accent={theme.colors.warning} />
+        <MetricCard label="Mejor día" value={money(summary.bestDay)} accent={theme.colors.warning} />
         <MetricCard
           label="Drawdown usado"
-          value={`${formatMoney(summary.maxDrawdownUsed)} / ${formatMoney(summary.maxDrawdown)}`}
+          value={`${money(summary.maxDrawdownUsed)} / ${money(summary.maxDrawdown)}`}
+          subValue={
+            activeChallenge.drawdownType === 'trailing'
+              ? `Piso: ${money(summary.drawdownFloor)}`
+              : undefined
+          }
           accent={summary.maxDrawdownUsed > summary.maxDrawdown * 0.75 ? theme.colors.negative : theme.colors.textSecondary}
         />
       </View>
@@ -123,8 +178,7 @@ export default function DashboardScreen() {
                   <Text style={styles.tradeDate}>{formatDate(t.date)}</Text>
                 </View>
                 <Text style={[styles.tradeAmount, { color: t.amount >= 0 ? theme.colors.positive : theme.colors.negative }]}>
-                  {t.amount >= 0 ? '+' : ''}
-                  {formatMoney(t.amount)}
+                  {hidePnl ? '•••••' : `${t.amount >= 0 ? '+' : ''}${formatMoney(t.amount)}`}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -149,12 +203,42 @@ export default function DashboardScreen() {
         onSave={handleSaveTrade}
         onDelete={handleDeleteTrade}
       />
+
+      <AccountSwitcherModal
+        visible={switcherVisible}
+        challenges={challenges}
+        activeChallengeId={activeChallenge.id}
+        onSelect={setActiveChallenge}
+        onClose={() => setSwitcherVisible(false)}
+      />
+
+      <BreachModal
+        visible={showBreachModal}
+        onRestart={handleRestart}
+        onSave={handleSaveBreach}
+        onDelete={handleDeleteBreach}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', gap: 8 },
+  upgradeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(240,180,41,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(240,180,41,0.35)',
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing(4),
+    marginBottom: theme.spacing(3),
+  },
+  upgradeTextWrap: { flex: 1 },
+  upgradeTitle: { fontSize: 14.5, fontWeight: '700', color: theme.colors.textPrimary },
+  upgradeBody: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 2, lineHeight: 16 },
+  upgradeButton: { marginBottom: theme.spacing(4) },
   statusCard: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -18,6 +18,7 @@ import { formatMoney } from '../utils/format';
 const PERIOD_OPTIONS = [
   { label: strings.analytics.periodWeek, value: 'week' },
   { label: strings.analytics.periodMonth, value: 'month' },
+  { label: strings.analytics.periodYear, value: 'year' },
   { label: strings.analytics.periodAll, value: 'all' },
 ];
 
@@ -32,6 +33,9 @@ function getPeriodStart(period) {
   }
   if (period === 'month') {
     return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  }
+  if (period === 'year') {
+    return new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
   }
   return null;
 }

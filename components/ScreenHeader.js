@@ -1,15 +1,25 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../config/theme';
 import IconButton from './IconButton';
 
-export default function ScreenHeader({ eyebrow, title, subtitle, onBack, right }) {
+export default function ScreenHeader({ eyebrow, title, subtitle, onBack, right, onEyebrowPress }) {
   return (
     <View style={styles.wrap}>
       <View style={styles.topRow}>
         {onBack ? <IconButton name="chevron-back" onPress={onBack} style={styles.backButton} /> : null}
         <View style={styles.titleBlock}>
-          {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
+          {eyebrow ? (
+            onEyebrowPress ? (
+              <TouchableOpacity style={styles.eyebrowRow} onPress={onEyebrowPress}>
+                <Text style={styles.eyebrow}>{eyebrow}</Text>
+                <Ionicons name="chevron-down" size={12} color={theme.colors.accent} />
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.eyebrow}>{eyebrow}</Text>
+            )
+          ) : null}
           <Text style={styles.title}>{title}</Text>
         </View>
         {right ?? null}
@@ -24,6 +34,7 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   titleBlock: { flex: 1 },
   backButton: { marginRight: 2 },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 6, alignSelf: 'flex-start' },
   eyebrow: {
     fontSize: 11,
     letterSpacing: 1,

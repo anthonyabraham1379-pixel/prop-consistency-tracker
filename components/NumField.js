@@ -3,7 +3,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { theme } from '../config/theme';
 import FieldLabel from './FieldLabel';
 
-export default function NumField({ label, value, onChange, prefix, suffix, style }) {
+export default function NumField({ label, value, onChange, prefix, suffix, style, placeholder = '0' }) {
   return (
     <View style={[styles.wrap, style]}>
       <FieldLabel>{label}</FieldLabel>
@@ -14,7 +14,7 @@ export default function NumField({ label, value, onChange, prefix, suffix, style
           value={value === null || value === undefined ? '' : String(value)}
           onChangeText={(text) => onChange(text.replace(/[^0-9.]/g, ''))}
           keyboardType="decimal-pad"
-          placeholder="0"
+          placeholder={placeholder}
           placeholderTextColor={theme.colors.textMuted}
         />
         {suffix ? <Text style={styles.suffix}>{suffix}</Text> : null}

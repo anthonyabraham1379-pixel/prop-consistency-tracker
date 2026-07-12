@@ -4,6 +4,7 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ChallengesProvider } from './context/ChallengesContext';
+import { PreferencesProvider } from './context/PreferencesContext';
 import RootNavigator from './navigation/RootNavigator';
 import { theme } from './config/theme';
 
@@ -22,12 +23,14 @@ const navigationTheme = {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <ChallengesProvider>
-        <NavigationContainer theme={navigationTheme}>
-          <StatusBar style="light" />
-          <RootNavigator />
-        </NavigationContainer>
-      </ChallengesProvider>
+      <PreferencesProvider>
+        <ChallengesProvider>
+          <NavigationContainer theme={navigationTheme}>
+            <StatusBar style="light" />
+            <RootNavigator />
+          </NavigationContainer>
+        </ChallengesProvider>
+      </PreferencesProvider>
     </SafeAreaProvider>
   );
 }
