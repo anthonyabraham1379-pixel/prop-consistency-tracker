@@ -20,6 +20,12 @@
 //  SCORE (max 7): 2 (barrido) + HTF + VWAP + Volumen + SMT + EQH/EQL.
 //  Si un filtro esta apagado no penaliza. EQH/EQL es bonus.
 //
+//  MODO DE RIESGO (grupo 8b):
+//  - "ATR (estructura)": SL en el extremo del barrido, TP por multiplos de R.
+//  - "USD fijo": perdida maxima y objetivo en dolares (usa el valor del
+//    punto del contrato y el numero de contratos). Con el filtro activado
+//    solo entra cuando el SL estructural cabe en la perdida maxima.
+//
 //  ANTI-REPINTADO:
 //  - Senales solo al cierre de vela (barstate.isconfirmed).
 //  - Sesgo HTF con vela HTF CERRADA (idiom [1] + lookahead_on).
@@ -243,6 +249,16 @@ tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
 showLvls = input.bool(true, "Dibujar lineas E/SL/TP", group=grpX)
 lvlExt   = input.int(20, "Extension de las lineas (velas)", minval=5, group=grpX)
 
+// Modo USD: SL y TP fijos en dolares segun el valor del punto del contrato.
+// Con el filtro activado solo entra cuando el SL estructural (extremo del
+// barrido + colchon) cabe dentro de la perdida maxima -> stop logico Y acotado.
+grpR = "8b) Modo de riesgo"
+modoSLTP = input.string("ATR (estructura)", "Modo de SL/TP", options=["ATR (estructura)", "USD fijo"], group=grpR)
+qtyCt    = input.int(1, "Contratos", minval=1, group=grpR)
+riskUSD  = input.float(500.0, "Perdida maxima (USD)", minval=1, group=grpR)
+tgtUSD   = input.float(2200.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
+fitStr   = input.bool(true, "Solo entrar si el SL estructural cabe en la perdida maxima", group=grpR)
+
 var int   swBearBar = na
 var float swBearExt = na
 var float swBearMssLvl = na
@@ -332,8 +348,17 @@ entryBearTrig = not reqFVG or fvgBearOK
 mssBullOK = not reqMSS or swBullMss
 mssBearOK = not reqMSS or swBearMss
 
-gateBull = sesionOK and mssBullOK and entryBullTrig
-gateBear = sesionOK and mssBearOK and entryBearTrig
+usdMode = modoSLTP == "USD fijo"
+pvQty   = syminfo.pointvalue * qtyCt
+riskPts = riskUSD / pvQty
+tgtPts  = tgtUSD / pvQty
+slStructBull = swBullExt - slBuf * atr
+slStructBear = swBearExt + slBuf * atr
+riskOKBull = not usdMode or not fitStr or (close - slStructBull) <= riskPts
+riskOKBear = not usdMode or not fitStr or (slStructBear - close) <= riskPts
+
+gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull
+gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
 
@@ -348,46 +373,66 @@ cL2 = color.new(color.green, 0)
 
 if buySig
     bullFired := true
-    slB = swBullExt - slBuf * atr
+    slB = usdMode and not fitStr ? close - riskPts : slStructBull
     rB  = close - slB
-    t1B = close + tp1R * rB
-    t2B = close + tp2R * rB
+    t1B = usdMode ? close + tgtPts : close + tp1R * rB
+    t2B = usdMode ? close + tgtPts : close + tp2R * rB
+    usdSlB = rB * pvQty
     txtB = "COMPRA " + str.tostring(scoreBull) + "/7"
     txtB := txtB + (swBullEQ ? " | EQL" : "") + (swBullSMT ? " | SMT" : "")
     txtB := txtB + "\nE " + f_fmt(close) + " | SL " + f_fmt(slB)
-    txtB := txtB + "\nTP1 " + f_fmt(t1B) + " | TP2 " + f_fmt(t2B)
+    if usdMode
+        txtB := txtB + " (-" + str.tostring(usdSlB, "#") + " USD)"
+        txtB := txtB + "\nTP " + f_fmt(t1B) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
+    else
+        txtB := txtB + "\nTP1 " + f_fmt(t1B) + " | TP2 " + f_fmt(t2B)
     label.new(bar_index, low, txtB, style=label.style_label_up, color=cLong, textcolor=color.white, size=size.small)
     if showLvls
         line.new(bar_index, close, bar_index + lvlExt, close, color=cLE, width=2)
         line.new(bar_index, slB, bar_index + lvlExt, slB, color=cLS, width=1)
         line.new(bar_index, t1B, bar_index + lvlExt, t1B, color=cL1, width=1)
-        line.new(bar_index, t2B, bar_index + lvlExt, t2B, color=cL2, width=1)
+        if not usdMode
+            line.new(bar_index, t2B, bar_index + lvlExt, t2B, color=cL2, width=1)
     aB = "SMC Master COMPRA " + syminfo.ticker + " (" + timeframe.period + ")"
     aB := aB + " | Score " + str.tostring(scoreBull) + "/7"
     aB := aB + " | E " + f_fmt(close) + " SL " + f_fmt(slB)
-    aB := aB + " TP1 " + f_fmt(t1B) + " TP2 " + f_fmt(t2B)
+    if usdMode
+        aB := aB + " TP " + f_fmt(t1B)
+        aB := aB + " | riesgo " + str.tostring(usdSlB, "#") + " obj " + str.tostring(tgtUSD, "#") + " USD"
+    else
+        aB := aB + " TP1 " + f_fmt(t1B) + " TP2 " + f_fmt(t2B)
     alert(aB, alert.freq_once_per_bar_close)
 
 if sellSig
     bearFired := true
-    slS = swBearExt + slBuf * atr
+    slS = usdMode and not fitStr ? close + riskPts : slStructBear
     rS  = slS - close
-    t1S = close - tp1R * rS
-    t2S = close - tp2R * rS
+    t1S = usdMode ? close - tgtPts : close - tp1R * rS
+    t2S = usdMode ? close - tgtPts : close - tp2R * rS
+    usdSlS = rS * pvQty
     txtS = "VENTA " + str.tostring(scoreBear) + "/7"
     txtS := txtS + (swBearEQ ? " | EQH" : "") + (swBearSMT ? " | SMT" : "")
     txtS := txtS + "\nE " + f_fmt(close) + " | SL " + f_fmt(slS)
-    txtS := txtS + "\nTP1 " + f_fmt(t1S) + " | TP2 " + f_fmt(t2S)
+    if usdMode
+        txtS := txtS + " (-" + str.tostring(usdSlS, "#") + " USD)"
+        txtS := txtS + "\nTP " + f_fmt(t1S) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
+    else
+        txtS := txtS + "\nTP1 " + f_fmt(t1S) + " | TP2 " + f_fmt(t2S)
     label.new(bar_index, high, txtS, style=label.style_label_down, color=cShort, textcolor=color.white, size=size.small)
     if showLvls
         line.new(bar_index, close, bar_index + lvlExt, close, color=cLE, width=2)
         line.new(bar_index, slS, bar_index + lvlExt, slS, color=cLS, width=1)
         line.new(bar_index, t1S, bar_index + lvlExt, t1S, color=cL1, width=1)
-        line.new(bar_index, t2S, bar_index + lvlExt, t2S, color=cL2, width=1)
+        if not usdMode
+            line.new(bar_index, t2S, bar_index + lvlExt, t2S, color=cL2, width=1)
     aS = "SMC Master VENTA " + syminfo.ticker + " (" + timeframe.period + ")"
     aS := aS + " | Score " + str.tostring(scoreBear) + "/7"
     aS := aS + " | E " + f_fmt(close) + " SL " + f_fmt(slS)
-    aS := aS + " TP1 " + f_fmt(t1S) + " TP2 " + f_fmt(t2S)
+    if usdMode
+        aS := aS + " TP " + f_fmt(t1S)
+        aS := aS + " | riesgo " + str.tostring(usdSlS, "#") + " obj " + str.tostring(tgtUSD, "#") + " USD"
+    else
+        aS := aS + " TP1 " + f_fmt(t1S) + " TP2 " + f_fmt(t2S)
     alert(aS, alert.freq_once_per_bar_close)
 
 alertcondition(buySig, "SMC Master - COMPRA", "Setup de COMPRA confirmado")
@@ -426,6 +471,8 @@ if showTbl and barstate.islast
     smtCol = not useSMT ? cNe : corrOK ? cUp : cWa
     modoTxt = (reqMSS ? "MSS" : "-") + " + " + (reqFVG ? "FVG" : "directo")
     modoTxt := modoTxt + " | min " + str.tostring(minScore)
+    if usdMode
+        modoTxt := modoTxt + " | USD -" + str.tostring(riskUSD, "#") + "/+" + str.tostring(tgtUSD, "#")
     table.cell(tbl, 0, 0, "SMC MASTER v2", text_color=color.white, text_size=size.small)
     table.cell(tbl, 1, 0, syminfo.ticker + " " + timeframe.period, text_color=color.white, text_size=size.small)
     table.cell(tbl, 0, 1, "Sesion", text_color=color.white, text_size=size.tiny)
