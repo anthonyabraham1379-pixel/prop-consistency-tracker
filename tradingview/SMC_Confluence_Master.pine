@@ -1,6 +1,6 @@
-//@version=5
+//@version=6
 // ═══════════════════════════════════════════════════════════════════
-//  SMC CONFLUENCE MASTER v2
+//  SMC CONFLUENCE MASTER v2 (Pine Script v6)
 //  Sweep + MSS/CHoCH + FVG + Sesión + HTF + VWAP + Volumen + SMT + EQH/EQL
 //  Diseñado para ES / NQ en 15m y 1H (también funciona en 1m-5m).
 //

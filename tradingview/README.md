@@ -1,6 +1,7 @@
 # SMC Confluence Master v2 — Indicador para TradingView
 
-Indicador de confluencias SMC (Smart Money Concepts) para ES/NQ en 15m y 1H.
+Indicador de confluencias SMC (Smart Money Concepts) para ES/NQ en 15m y 1H,
+escrito en **Pine Script v6** (la versión actual de TradingView).
 Sigue el modelo de entrada en 3 pasos: **barrido de liquidez → MSS/CHoCH →
 retorno al FVG**, filtrado por sesión, sesgo del TF mayor, VWAP, volumen y SMT.
 
