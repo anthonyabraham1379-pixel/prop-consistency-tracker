@@ -1,0 +1,374 @@
+//@version=5
+// ═══════════════════════════════════════════════════════════════════
+//  SMC CONFLUENCE MASTER v2
+//  Sweep + MSS/CHoCH + FVG + Sesión + HTF + VWAP + Volumen + SMT + EQH/EQL
+//  Diseñado para ES / NQ en 15m y 1H (también funciona en 1m-5m).
+//
+//  CÓMO USARLO:
+//  1) TradingView → Editor Pine → pega todo → "Añadir al gráfico".
+//  2) Úsalo en 15m o 1H. El TF mayor se ajusta solo (≤15m→1H, 1H→4H).
+//  3) La señal sigue el modelo completo en 3 pasos:
+//       PASO 1  Barrido de liquidez (swing/EQH/EQL con rechazo)
+//       PASO 2  MSS/CHoCH: el precio rompe la estructura menor en contra
+//               del barrido (confirma que fue sweep y no continuación)
+//       PASO 3  Retorno al FVG creado tras el barrido → ENTRADA
+//     Todo dentro de tu ventana horaria y con score de confluencia mínimo.
+//  4) Alertas: "Crear alerta" → condición: este indicador →
+//     "Cualquier función alert()" para recibir el mensaje con E/SL/TP.
+//
+//  SCORE (máx 7): 2 (barrido) + HTF + VWAP + Volumen + SMT + EQH/EQL.
+//  Si un filtro está apagado no penaliza. EQH/EQL es bonus (pool de
+//  liquidez más fuerte), no tiene toggle.
+//
+//  ANTI-REPINTADO:
+//  - Señales solo al cierre de vela (barstate.isconfirmed).
+//  - Sesgo HTF con vela HTF CERRADA (idiom [1] + lookahead_on):
+//    el valor no cambia mientras la vela del TF mayor sigue abierta.
+//  - Pivotes confirmados con retardo fijo (pl velas), nunca se redibujan.
+// ═══════════════════════════════════════════════════════════════════
+indicator("SMC Confluence Master v2", shorttitle="SMC Master v2", overlay=true, max_boxes_count=100, max_labels_count=300, max_lines_count=300)
+
+// ══════════ 1) FILTRO HORARIO (America/Chicago) ══════════
+grpS = "1) Filtro horario (hora CT)"
+useSes   = input.bool(true,  "Señales solo en sesiones activas", group=grpS)
+sesNY    = input.session("0730-1030", "Sesión NY AM (tu ventana)", group=grpS)
+useLDN   = input.bool(false, "Incluir Londres", group=grpS)
+sesLDN   = input.session("0200-0500", "Sesión Londres", group=grpS)
+avoidLun = input.bool(true,  "Bloquear mediodía (lunch)", group=grpS)
+sesLUN   = input.session("1130-1300", "Lunch NY", group=grpS)
+tzStr    = input.string("America/Chicago", "Zona horaria", group=grpS)
+showBg   = input.bool(true, "Sombrear sesiones", group=grpS)
+
+inNY  = not na(time(timeframe.period, sesNY, tzStr))
+inLDN = not na(time(timeframe.period, sesLDN, tzStr))
+inLUN = not na(time(timeframe.period, sesLUN, tzStr))
+sesionOK = (not useSes or inNY or (useLDN and inLDN)) and not (avoidLun and inLUN)
+
+bgcolor(showBg and inNY ? color.new(color.teal, 93) : na, title="Fondo NY")
+bgcolor(showBg and useLDN and inLDN ? color.new(color.blue, 94) : na, title="Fondo Londres")
+bgcolor(showBg and avoidLun and inLUN ? color.new(color.gray, 92) : na, title="Fondo lunch")
+
+// ══════════ 2) SESGO: TF MAYOR + VWAP ══════════
+grpB = "2) Sesgo (TF mayor + VWAP)"
+useHTF  = input.bool(true, "Filtrar con sesgo del TF mayor", group=grpB)
+autoHTF = input.bool(true, "TF mayor automático (≤15m→1H, 1H→4H, mayor→D)", group=grpB)
+htfTF   = input.timeframe("60", "TF mayor manual", group=grpB)
+htfLen  = input.int(50, "EMA del TF mayor", minval=5, group=grpB)
+useVW   = input.bool(true, "Filtrar con VWAP de sesión", group=grpB)
+showVW  = input.bool(true, "Mostrar VWAP", group=grpB)
+
+htfUse = autoHTF ? (timeframe.in_seconds() <= 900 ? "60" : timeframe.in_seconds() <= 3600 ? "240" : "D") : htfTF
+// Vela HTF cerrada → no repinta mientras la vela del TF mayor está abierta
+htfEma = request.security(syminfo.tickerid, htfUse, ta.ema(close, htfLen)[1], lookahead=barmerge.lookahead_on)
+htfValido = timeframe.in_seconds() < timeframe.in_seconds(htfUse)
+htfBull = close > htfEma
+htfBear = close < htfEma
+
+vwapVal = ta.vwap(hlc3)
+vwBull  = close > vwapVal
+vwBear  = close < vwapVal
+plot(showVW ? vwapVal : na, "VWAP sesión", color=color.new(color.orange, 0), linewidth=2)
+
+// ══════════ 3) SWINGS Y BARRIDO DE LIQUIDEZ ══════════
+grpP = "3) Barrido de liquidez"
+pl      = input.int(5, "Longitud de pivote (swings)", minval=2, group=grpP)
+eqTolA  = input.float(0.25, "Tolerancia EQH/EQL (x ATR)", step=0.05, group=grpP)
+wickA   = input.float(0.5, "Mecha mínima de rechazo (x ATR)", step=0.1, group=grpP)
+allow2  = input.bool(true, "Permitir barrido en 2 velas (rompe y recupera)", group=grpP)
+showSw  = input.bool(true, "Mostrar últimos swings", group=grpP)
+
+atr = ta.atr(14)
+ph  = ta.pivothigh(high, pl, pl)
+plv = ta.pivotlow(low, pl, pl)
+
+var float lastPH = na
+var float prevPH = na
+var float lastPL = na
+var float prevPL = na
+if not na(ph)
+    prevPH := lastPH
+    lastPH := ph
+if not na(plv)
+    prevPL := lastPL
+    lastPL := plv
+
+eqhTag = not na(lastPH) and not na(prevPH) and math.abs(lastPH - prevPH) <= eqTolA * atr
+eqlTag = not na(lastPL) and not na(prevPL) and math.abs(lastPL - prevPL) <= eqTolA * atr
+
+plot(showSw ? lastPH : na, "Swing high", color=color.new(color.red, 55), style=plot.style_linebr)
+plot(showSw ? lastPL : na, "Swing low", color=color.new(color.green, 55), style=plot.style_linebr)
+
+upperWick = high - math.max(open, close)
+lowerWick = math.min(open, close) - low
+
+// Sweep 1 vela: toma el nivel con mecha y CIERRA de vuelta dentro (no es "run")
+sweepBear1 = not na(lastPH) and high > lastPH and close < lastPH and upperWick >= wickA * atr
+sweepBull1 = not na(lastPL) and low < lastPL and close > lastPL and lowerWick >= wickA * atr
+// Sweep 2 velas: la vela anterior rompe Y cierra fuera, esta cierra de vuelta dentro
+sweepBear2 = allow2 and not na(lastPH) and high[1] > lastPH and close[1] >= lastPH and close < lastPH
+sweepBull2 = allow2 and not na(lastPL) and low[1] < lastPL and close[1] <= lastPL and close > lastPL
+sweepBear = sweepBear1 or sweepBear2
+sweepBull = sweepBull1 or sweepBull2
+
+plotshape(sweepBear, title="Barrido de high", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 20), size=size.tiny)
+plotshape(sweepBull, title="Barrido de low", style=shape.triangleup, location=location.belowbar, color=color.new(color.green, 20), size=size.tiny)
+
+// ══════════ 4) SMT (divergencia con símbolo correlacionado) ══════════
+grpM = "4) SMT (ES ↔ NQ)"
+useSMT  = input.bool(true, "Usar SMT como confluencia", group=grpM)
+corrSym = input.symbol("CME_MINI:NQ1!", "Símbolo correlacionado (NQ1! si operas ES; ES1! si operas NQ)", group=grpM)
+
+corrH = request.security(corrSym, timeframe.period, high, lookahead=barmerge.lookahead_off)
+corrL = request.security(corrSym, timeframe.period, low, lookahead=barmerge.lookahead_off)
+corrOK = not na(corrH) and not na(corrL)
+cph  = ta.pivothigh(corrH, pl, pl)
+cplv = ta.pivotlow(corrL, pl, pl)
+var float corrPH = na
+var float corrPL = na
+if not na(cph)
+    corrPH := cph
+if not na(cplv)
+    corrPL := cplv
+
+// SMT: tu símbolo barre su nivel pero el correlacionado NO barre el suyo
+smtBearNow = useSMT and sweepBear and corrOK and not na(corrPH) and corrH < corrPH
+smtBullNow = useSMT and sweepBull and corrOK and not na(corrPL) and corrL > corrPL
+
+// ══════════ 5) VOLUMEN ══════════
+grpV = "5) Volumen"
+useVol  = input.bool(true, "Usar volumen como confluencia", group=grpV)
+volLen  = input.int(20, "Media de volumen", group=grpV)
+volMult = input.float(1.3, "Volumen mínimo del barrido (x media)", step=0.1, group=grpV)
+volSma  = ta.sma(nz(volume), volLen)
+volOKn  = nz(volume) >= volSma * volMult
+volOKp  = nz(volume[1]) >= volSma[1] * volMult
+
+// ══════════ 6) FVG (zona de entrada) ══════════
+grpF = "6) FVG"
+showFVG = input.bool(true, "Dibujar FVGs", group=grpF)
+fvgMinA = input.float(0.15, "Tamaño mínimo del FVG (x ATR)", step=0.05, group=grpF)
+
+bullFVG = low > high[2] and (low - high[2]) >= fvgMinA * atr
+bearFVG = high < low[2] and (low[2] - high) >= fvgMinA * atr
+
+var float bullFvgTop = na
+var float bullFvgBot = na
+var int   bullFvgBar = na
+var float bearFvgTop = na
+var float bearFvgBot = na
+var int   bearFvgBar = na
+var box   bullBoxA = na
+var box   bearBoxA = na
+
+if bullFVG
+    bullFvgTop := low
+    bullFvgBot := high[2]
+    bullFvgBar := bar_index
+    if showFVG
+        bullBoxA := box.new(bar_index - 2, low, bar_index, high[2], border_color=color.new(color.green, 60), bgcolor=color.new(color.green, 88))
+if bearFVG
+    bearFvgTop := low[2]
+    bearFvgBot := high
+    bearFvgBar := bar_index
+    if showFVG
+        bearBoxA := box.new(bar_index - 2, low[2], bar_index, high, border_color=color.new(color.red, 60), bgcolor=color.new(color.red, 88))
+
+// El FVG activo se extiende hasta que el precio lo atraviesa por completo;
+// entonces queda gris (invalidado) y deja de ser zona de entrada
+if not na(bullBoxA) and not na(bullFvgBot)
+    box.set_right(bullBoxA, bar_index)
+if not na(bearBoxA) and not na(bearFvgTop)
+    box.set_right(bearBoxA, bar_index)
+
+if not na(bullFvgBot) and close < bullFvgBot
+    bullFvgTop := na
+    bullFvgBot := na
+    bullFvgBar := na
+    if not na(bullBoxA)
+        box.set_border_color(bullBoxA, color.new(color.gray, 75))
+        box.set_bgcolor(bullBoxA, color.new(color.gray, 93))
+        bullBoxA := na
+if not na(bearFvgTop) and close > bearFvgTop
+    bearFvgTop := na
+    bearFvgBot := na
+    bearFvgBar := na
+    if not na(bearBoxA)
+        box.set_border_color(bearBoxA, color.new(color.gray, 75))
+        box.set_bgcolor(bearBoxA, color.new(color.gray, 93))
+        bearBoxA := na
+
+inBullFvg = not na(bullFvgBot) and low <= bullFvgTop and close >= bullFvgBot
+inBearFvg = not na(bearFvgTop) and high >= bearFvgBot and close <= bearFvgTop
+
+// ══════════ 7) CONFIRMACIÓN MSS / CHoCH ══════════
+grpC = "7) Confirmación MSS (CHoCH)"
+reqMSS  = input.bool(true, "Exigir MSS tras el barrido (recomendado)", group=grpC)
+mssL    = input.int(3, "Longitud del pivote menor (estructura)", minval=2, group=grpC)
+showMss = input.bool(true, "Marcar MSS en el gráfico", group=grpC)
+
+mph = ta.pivothigh(high, mssL, mssL)
+mpl = ta.pivotlow(low, mssL, mssL)
+var float minorPH = na
+var float minorPL = na
+if not na(mph)
+    minorPH := mph
+if not na(mpl)
+    minorPL := mpl
+
+// ══════════ 8) MÁQUINA DE SETUP + SCORE ══════════
+grpX = "8) Señal y riesgo"
+winBars  = input.int(15, "Ventana máx. tras el barrido (velas)", minval=3, group=grpX)
+reqFVG   = input.bool(true, "Exigir retorno a FVG para entrar", group=grpX)
+minScore = input.int(5, "Score mínimo (2 base + extras, máx 7)", minval=2, maxval=7, group=grpX)
+slBuf    = input.float(0.5, "Colchón del SL (x ATR)", step=0.1, group=grpX)
+tp1R     = input.float(1.5, "TP1 (múltiplo de R)", step=0.1, group=grpX)
+tp2R     = input.float(2.5, "TP2 (múltiplo de R)", step=0.1, group=grpX)
+showLvls = input.bool(true, "Dibujar líneas E/SL/TP", group=grpX)
+lvlExt   = input.int(20, "Extensión de las líneas (velas)", minval=5, group=grpX)
+
+var int   swBearBar = na
+var float swBearExt = na
+var float swBearMssLvl = na
+var bool  swBearVol = false
+var bool  swBearSMT = false
+var bool  swBearEQ  = false
+var bool  swBearMss = false
+var bool  bearFired = false
+
+var int   swBullBar = na
+var float swBullExt = na
+var float swBullMssLvl = na
+var bool  swBullVol = false
+var bool  swBullSMT = false
+var bool  swBullEQ  = false
+var bool  swBullMss = false
+var bool  bullFired = false
+
+var int lastBullSweepBar = na
+var int lastBearSweepBar = na
+
+// Expirar el setup si pasó la ventana sin entrada
+if not na(swBullBar) and (bar_index - swBullBar) > winBars
+    swBullBar := na
+    swBullMss := false
+if not na(swBearBar) and (bar_index - swBearBar) > winBars
+    swBearBar := na
+    swBearMss := false
+
+if sweepBear
+    swBearBar := bar_index
+    swBearExt := sweepBear2 ? math.max(high, high[1]) : high
+    swBearVol := volOKn or (sweepBear2 and volOKp)
+    swBearSMT := smtBearNow
+    swBearEQ  := eqhTag
+    swBearMss := false
+    swBearMssLvl := na(minorPL) ? low : minorPL
+    bearFired := false
+    lastBearSweepBar := bar_index
+if sweepBull
+    swBullBar := bar_index
+    swBullExt := sweepBull2 ? math.min(low, low[1]) : low
+    swBullVol := volOKn or (sweepBull2 and volOKp)
+    swBullSMT := smtBullNow
+    swBullEQ  := eqlTag
+    swBullMss := false
+    swBullMssLvl := na(minorPH) ? high : minorPH
+    bullFired := false
+    lastBullSweepBar := bar_index
+
+// MSS: tras barrer el low, el precio rompe al alza el último swing menor
+// (y viceversa). Es el CHoCH que separa un sweep real de una continuación.
+if not na(swBullBar) and not swBullMss and not na(swBullMssLvl) and close > swBullMssLvl
+    swBullMss := true
+    if showMss and barstate.isconfirmed
+        label.new(bar_index, high, "MSS", style=label.style_label_down, color=color.new(color.green, 55), textcolor=color.white, size=size.tiny)
+if not na(swBearBar) and not swBearMss and not na(swBearMssLvl) and close < swBearMssLvl
+    swBearMss := true
+    if showMss and barstate.isconfirmed
+        label.new(bar_index, low, "MSS", style=label.style_label_up, color=color.new(color.red, 55), textcolor=color.white, size=size.tiny)
+
+// Si un filtro está apagado no penaliza el score. EQH/EQL es bonus.
+scoreBull = 2 + (not useHTF or htfBull ? 1 : 0) + (not useVW or vwBull ? 1 : 0) + (not useVol or swBullVol ? 1 : 0) + (not useSMT or swBullSMT ? 1 : 0) + (swBullEQ ? 1 : 0)
+scoreBear = 2 + (not useHTF or htfBear ? 1 : 0) + (not useVW or vwBear ? 1 : 0) + (not useVol or swBearVol ? 1 : 0) + (not useSMT or swBearSMT ? 1 : 0) + (swBearEQ ? 1 : 0)
+
+winBull = not na(swBullBar) and (bar_index - swBullBar) <= winBars and not bullFired
+winBear = not na(swBearBar) and (bar_index - swBearBar) <= winBars and not bearFired
+
+entryBullTrig = not reqFVG or (inBullFvg and not na(bullFvgBar) and not na(swBullBar) and bullFvgBar >= swBullBar)
+entryBearTrig = not reqFVG or (inBearFvg and not na(bearFvgBar) and not na(swBearBar) and bearFvgBar >= swBearBar)
+
+mssBullOK = not reqMSS or swBullMss
+mssBearOK = not reqMSS or swBearMss
+
+buySig  = winBull and sesionOK and scoreBull >= minScore and mssBullOK and entryBullTrig and barstate.isconfirmed
+sellSig = winBear and sesionOK and scoreBear >= minScore and mssBearOK and entryBearTrig and barstate.isconfirmed
+
+f_fmt(x) => str.tostring(x, format.mintick)
+
+if buySig
+    bullFired := true
+    slB = swBullExt - slBuf * atr
+    rB  = close - slB
+    t1B = close + tp1R * rB
+    t2B = close + tp2R * rB
+    txtB = "COMPRA " + str.tostring(scoreBull) + "/7" + (swBullEQ ? " · EQL" : "") + (swBullSMT ? " · SMT" : "") + (swBullMss ? " · MSS" : "") + "\nE " + f_fmt(close) + " · SL " + f_fmt(slB) + "\nTP1 " + f_fmt(t1B) + " · TP2 " + f_fmt(t2B)
+    label.new(bar_index, low, text=txtB, style=label.style_label_up, color=color.new(color.green, 10), textcolor=color.white, size=size.small)
+    if showLvls
+        line.new(bar_index, close, bar_index + lvlExt, close, color=color.new(color.blue, 0), width=2)
+        line.new(bar_index, slB, bar_index + lvlExt, slB, color=color.new(color.red, 0), width=1)
+        line.new(bar_index, t1B, bar_index + lvlExt, t1B, color=color.new(color.green, 35), width=1)
+        line.new(bar_index, t2B, bar_index + lvlExt, t2B, color=color.new(color.green, 0), width=1)
+    alert("SMC Master COMPRA " + syminfo.ticker + " (" + timeframe.period + ") | Score " + str.tostring(scoreBull) + "/7 | E " + f_fmt(close) + " SL " + f_fmt(slB) + " TP1 " + f_fmt(t1B) + " TP2 " + f_fmt(t2B), alert.freq_once_per_bar_close)
+
+if sellSig
+    bearFired := true
+    slS = swBearExt + slBuf * atr
+    rS  = slS - close
+    t1S = close - tp1R * rS
+    t2S = close - tp2R * rS
+    txtS = "VENTA " + str.tostring(scoreBear) + "/7" + (swBearEQ ? " · EQH" : "") + (swBearSMT ? " · SMT" : "") + (swBearMss ? " · MSS" : "") + "\nE " + f_fmt(close) + " · SL " + f_fmt(slS) + "\nTP1 " + f_fmt(t1S) + " · TP2 " + f_fmt(t2S)
+    label.new(bar_index, high, text=txtS, style=label.style_label_down, color=color.new(color.red, 10), textcolor=color.white, size=size.small)
+    if showLvls
+        line.new(bar_index, close, bar_index + lvlExt, close, color=color.new(color.blue, 0), width=2)
+        line.new(bar_index, slS, bar_index + lvlExt, slS, color=color.new(color.red, 0), width=1)
+        line.new(bar_index, t1S, bar_index + lvlExt, t1S, color=color.new(color.green, 35), width=1)
+        line.new(bar_index, t2S, bar_index + lvlExt, t2S, color=color.new(color.green, 0), width=1)
+    alert("SMC Master VENTA " + syminfo.ticker + " (" + timeframe.period + ") | Score " + str.tostring(scoreBear) + "/7 | E " + f_fmt(close) + " SL " + f_fmt(slS) + " TP1 " + f_fmt(t1S) + " TP2 " + f_fmt(t2S), alert.freq_once_per_bar_close)
+
+alertcondition(buySig, "SMC Master — COMPRA", "Setup de COMPRA confirmado (barrido + MSS + confluencia + sesión)")
+alertcondition(sellSig, "SMC Master — VENTA", "Setup de VENTA confirmado (barrido + MSS + confluencia + sesión)")
+
+// ══════════ 9) PANEL DE ESTADO ══════════
+grpD = "9) Panel"
+showTbl = input.bool(true, "Mostrar panel de estado", group=grpD)
+var table tbl = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 60))
+if showTbl and barstate.islast
+    cUp = color.new(color.green, 0)
+    cDn = color.new(color.red, 0)
+    cNe = color.new(color.silver, 0)
+    cWa = color.new(color.orange, 0)
+    setupTxt = winBull ? "LONG · " + str.tostring(scoreBull) + "/7 · " + (swBullMss ? "MSS✔" : "MSS…") + (reqFVG ? (inBullFvg ? " · FVG✔" : " · FVG…") : "") : winBear ? "SHORT · " + str.tostring(scoreBear) + "/7 · " + (swBearMss ? "MSS✔" : "MSS…") + (reqFVG ? (inBearFvg ? " · FVG✔" : " · FVG…") : "") : "Esperando barrido"
+    setupCol = winBull ? cUp : winBear ? cDn : cNe
+    lastSwTxt = not na(lastBullSweepBar) and (na(lastBearSweepBar) or lastBullSweepBar > lastBearSweepBar) ? "Low barrido hace " + str.tostring(bar_index - lastBullSweepBar) : not na(lastBearSweepBar) ? "High barrido hace " + str.tostring(bar_index - lastBearSweepBar) : "—"
+    htfTxt = not htfValido ? "TF ≥ HTF ⚠" : htfBull ? "Alcista ▲" : "Bajista ▼"
+    htfCol = not htfValido ? cWa : htfBull ? cUp : cDn
+    smtTxt = not useSMT ? "Off" : corrOK ? "Datos OK" : "SIN DATOS ⚠"
+    smtCol = not useSMT ? cNe : corrOK ? cUp : cWa
+    table.cell(tbl, 0, 0, "SMC MASTER v2", text_color=color.white, text_size=size.small)
+    table.cell(tbl, 1, 0, syminfo.ticker + " · " + timeframe.period, text_color=color.white, text_size=size.small)
+    table.cell(tbl, 0, 1, "Sesión", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 1, sesionOK ? "ACTIVA ✔" : "FUERA ✖", text_color=sesionOK ? cUp : cDn, text_size=size.tiny)
+    table.cell(tbl, 0, 2, "Sesgo TF mayor", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 2, htfTxt, text_color=htfCol, text_size=size.tiny)
+    table.cell(tbl, 0, 3, "VWAP", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 3, vwBull ? "Encima ▲" : "Debajo ▼", text_color=vwBull ? cUp : cDn, text_size=size.tiny)
+    table.cell(tbl, 0, 4, "Volumen", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 4, volOKn ? "Alto" : "Normal", text_color=volOKn ? cUp : cNe, text_size=size.tiny)
+    table.cell(tbl, 0, 5, "SMT", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 5, smtTxt, text_color=smtCol, text_size=size.tiny)
+    table.cell(tbl, 0, 6, "Últ. barrido", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 6, lastSwTxt, text_color=cNe, text_size=size.tiny)
+    table.cell(tbl, 0, 7, "Setup", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 7, setupTxt, text_color=setupCol, text_size=size.tiny)
+    table.cell(tbl, 0, 8, "Modo", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 8, (reqMSS ? "MSS" : "—") + " + " + (reqFVG ? "FVG" : "directo") + " · min " + str.tostring(minScore), text_color=cNe, text_size=size.tiny)
