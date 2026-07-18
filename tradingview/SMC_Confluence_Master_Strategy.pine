@@ -1,6 +1,9 @@
 //@version=6
 // ===================================================================
-//  SMC CONFLUENCE MASTER v2 (Pine Script v6)
+//  SMC CONFLUENCE MASTER v2 - BACKTEST (Pine Script v6)
+//  Version ESTRATEGIA: misma logica de senales que el indicador, pero
+//  ejecuta las operaciones en el Probador de Estrategias de TradingView
+//  (comision 2.5 USD por contrato y lado, slippage 1 tick).
 //  Sweep + MSS/CHoCH + FVG + Sesion + HTF + VWAP + Volumen + SMT + EQH/EQL
 //  Disenado para ES / NQ en 15m y 1H (tambien funciona en 1m-5m).
 //  Archivo 100% ASCII para evitar problemas de codificacion al copiar.
@@ -31,7 +34,7 @@
 //  - Sesgo HTF con vela HTF CERRADA (idiom [1] + lookahead_on).
 //  - Pivotes confirmados con retardo fijo, nunca se redibujan.
 // ===================================================================
-indicator("SMC Confluence Master v2", "SMC v2", overlay=true, max_boxes_count=100, max_labels_count=300, max_lines_count=300)
+strategy("SMC Confluence Master v2 Backtest", "SMC BT", overlay=true, initial_capital=25000, commission_type=strategy.commission.cash_per_contract, commission_value=2.5, slippage=1, process_orders_on_close=true, max_boxes_count=100, max_labels_count=300, max_lines_count=300)
 
 // ========== 1) FILTRO HORARIO (America/Chicago) ==========
 grpS = "1) Filtro horario (hora CT)"
@@ -246,8 +249,6 @@ minScore = input.int(5, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
 tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
-showLvls = input.bool(true, "Dibujar lineas E/SL/TP", group=grpX)
-lvlExt   = input.int(20, "Extension de las lineas (velas)", minval=5, group=grpX)
 
 // Modo USD: SL y TP fijos en dolares segun el valor del punto del contrato.
 // Con el filtro activado solo entra cuando el SL estructural (extremo del
@@ -362,84 +363,63 @@ gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
 
-f_fmt(x) => str.tostring(x, format.mintick)
+// ========== 9) EJECUCION DEL BACKTEST ==========
+grpT = "9) Backtest"
+useBE    = input.bool(true, "Mover SL a breakeven a mitad de camino", group=grpT)
+closeSes = input.bool(true, "Cerrar posiciones al terminar la sesion", group=grpT)
 
-cLong  = color.new(color.green, 10)
-cShort = color.new(color.red, 10)
-cLE = color.new(color.blue, 0)
-cLS = color.new(color.red, 0)
-cL1 = color.new(color.green, 35)
-cL2 = color.new(color.green, 0)
+var float posEntry = na
+var float posSL  = na
+var float posTP1 = na
+var float posTP2 = na
+var bool  beDone = false
 
-if buySig
-    bullFired := true
-    slB = usdMode and not fitStr ? close - riskPts : slStructBull
-    rB  = close - slB
-    t1B = usdMode ? close + tgtPts : close + tp1R * rB
-    t2B = usdMode ? close + tgtPts : close + tp2R * rB
-    usdSlB = rB * pvQty
-    txtB = "COMPRA " + str.tostring(scoreBull) + "/7"
-    txtB := txtB + (swBullEQ ? " | EQL" : "") + (swBullSMT ? " | SMT" : "")
-    txtB := txtB + "\nE " + f_fmt(close) + " | SL " + f_fmt(slB)
+if buySig and strategy.position_size == 0
+    posEntry := close
+    posSL  := usdMode and not fitStr ? close - riskPts : slStructBull
+    posTP1 := usdMode ? close + tgtPts : close + tp1R * (close - posSL)
+    posTP2 := usdMode ? close + tgtPts : close + tp2R * (close - posSL)
+    beDone := false
+    strategy.entry("Long", strategy.long, qty=qtyCt)
+
+if sellSig and strategy.position_size == 0 and not buySig
+    posEntry := close
+    posSL  := usdMode and not fitStr ? close + riskPts : slStructBear
+    posTP1 := usdMode ? close - tgtPts : close - tp1R * (posSL - close)
+    posTP2 := usdMode ? close - tgtPts : close - tp2R * (posSL - close)
+    beDone := false
+    strategy.entry("Short", strategy.short, qty=qtyCt)
+
+// Breakeven: en modo USD se activa a mitad de camino al TP;
+// en modo ATR se activa cuando el precio toca TP1
+beTrigL = usdMode ? posEntry + (posTP1 - posEntry) / 2 : posTP1
+beTrigS = usdMode ? posEntry - (posEntry - posTP1) / 2 : posTP1
+
+if strategy.position_size > 0
+    if useBE and not beDone and high >= beTrigL
+        beDone := true
+    stopL = beDone ? posEntry : posSL
     if usdMode
-        txtB := txtB + " (-" + str.tostring(usdSlB, "#") + " USD)"
-        txtB := txtB + "\nTP " + f_fmt(t1B) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
+        strategy.exit("XL", "Long", stop=stopL, limit=posTP1)
     else
-        txtB := txtB + "\nTP1 " + f_fmt(t1B) + " | TP2 " + f_fmt(t2B)
-    label.new(bar_index, low, txtB, style=label.style_label_up, color=cLong, textcolor=color.white, size=size.small)
-    if showLvls
-        line.new(bar_index, close, bar_index + lvlExt, close, color=cLE, width=2)
-        line.new(bar_index, slB, bar_index + lvlExt, slB, color=cLS, width=1)
-        line.new(bar_index, t1B, bar_index + lvlExt, t1B, color=cL1, width=1)
-        if not usdMode
-            line.new(bar_index, t2B, bar_index + lvlExt, t2B, color=cL2, width=1)
-    aB = "SMC Master COMPRA " + syminfo.ticker + " (" + timeframe.period + ")"
-    aB := aB + " | Score " + str.tostring(scoreBull) + "/7"
-    aB := aB + " | E " + f_fmt(close) + " SL " + f_fmt(slB)
-    if usdMode
-        aB := aB + " TP " + f_fmt(t1B)
-        aB := aB + " | riesgo " + str.tostring(usdSlB, "#") + " obj " + str.tostring(tgtUSD, "#") + " USD"
-    else
-        aB := aB + " TP1 " + f_fmt(t1B) + " TP2 " + f_fmt(t2B)
-    alert(aB, alert.freq_once_per_bar_close)
+        strategy.exit("XL1", "Long", qty_percent=50, stop=stopL, limit=posTP1)
+        strategy.exit("XL2", "Long", qty_percent=100, stop=stopL, limit=posTP2)
 
-if sellSig
-    bearFired := true
-    slS = usdMode and not fitStr ? close + riskPts : slStructBear
-    rS  = slS - close
-    t1S = usdMode ? close - tgtPts : close - tp1R * rS
-    t2S = usdMode ? close - tgtPts : close - tp2R * rS
-    usdSlS = rS * pvQty
-    txtS = "VENTA " + str.tostring(scoreBear) + "/7"
-    txtS := txtS + (swBearEQ ? " | EQH" : "") + (swBearSMT ? " | SMT" : "")
-    txtS := txtS + "\nE " + f_fmt(close) + " | SL " + f_fmt(slS)
+if strategy.position_size < 0
+    if useBE and not beDone and low <= beTrigS
+        beDone := true
+    stopS = beDone ? posEntry : posSL
     if usdMode
-        txtS := txtS + " (-" + str.tostring(usdSlS, "#") + " USD)"
-        txtS := txtS + "\nTP " + f_fmt(t1S) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
+        strategy.exit("XS", "Short", stop=stopS, limit=posTP1)
     else
-        txtS := txtS + "\nTP1 " + f_fmt(t1S) + " | TP2 " + f_fmt(t2S)
-    label.new(bar_index, high, txtS, style=label.style_label_down, color=cShort, textcolor=color.white, size=size.small)
-    if showLvls
-        line.new(bar_index, close, bar_index + lvlExt, close, color=cLE, width=2)
-        line.new(bar_index, slS, bar_index + lvlExt, slS, color=cLS, width=1)
-        line.new(bar_index, t1S, bar_index + lvlExt, t1S, color=cL1, width=1)
-        if not usdMode
-            line.new(bar_index, t2S, bar_index + lvlExt, t2S, color=cL2, width=1)
-    aS = "SMC Master VENTA " + syminfo.ticker + " (" + timeframe.period + ")"
-    aS := aS + " | Score " + str.tostring(scoreBear) + "/7"
-    aS := aS + " | E " + f_fmt(close) + " SL " + f_fmt(slS)
-    if usdMode
-        aS := aS + " TP " + f_fmt(t1S)
-        aS := aS + " | riesgo " + str.tostring(usdSlS, "#") + " obj " + str.tostring(tgtUSD, "#") + " USD"
-    else
-        aS := aS + " TP1 " + f_fmt(t1S) + " TP2 " + f_fmt(t2S)
-    alert(aS, alert.freq_once_per_bar_close)
+        strategy.exit("XS1", "Short", qty_percent=50, stop=stopS, limit=posTP1)
+        strategy.exit("XS2", "Short", qty_percent=100, stop=stopS, limit=posTP2)
 
-alertcondition(buySig, "SMC Master - COMPRA", "Setup de COMPRA confirmado")
-alertcondition(sellSig, "SMC Master - VENTA", "Setup de VENTA confirmado")
+if closeSes and strategy.position_size != 0 and not inNY and not (useLDN and inLDN)
+    strategy.close_all(comment="Fin de sesion")
 
-// ========== 9) PANEL DE ESTADO ==========
-grpD = "9) Panel"
+// ========== 10) PANEL DE ESTADO ==========
+grpD = "10) Panel"
 showTbl = input.bool(true, "Mostrar panel de estado", group=grpD)
 var table tbl = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 60))
 if showTbl and barstate.islast
