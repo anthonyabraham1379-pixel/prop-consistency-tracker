@@ -12,7 +12,8 @@
 //       PASO 1  Barrido de liquidez (swing/EQH/EQL con rechazo)
 //       PASO 2  MSS/CHoCH: el precio rompe la estructura menor en contra
 //               del barrido (confirma que fue sweep y no continuacion)
-//       PASO 3  Retorno al FVG creado tras el barrido -> ENTRADA
+//       PASO 3  Entrada al confirmar el MSS (opcional: exigir ademas
+//               el retorno al FVG, modo estricto, en el grupo 8)
 //     Todo dentro de tu ventana horaria y con score de confluencia minimo.
 //  4) Alertas: "Crear alerta" -> condicion: este indicador ->
 //     "Cualquier funcion alert()" para recibir el mensaje con E/SL/TP.
@@ -244,7 +245,7 @@ if not na(mpl)
 // ========== 8) MAQUINA DE SETUP + SCORE ==========
 grpX = "8) Senal y riesgo"
 winBars  = input.int(15, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
-reqFVG   = input.bool(true, "Exigir retorno a FVG para entrar", group=grpX)
+reqFVG   = input.bool(false, "Exigir retorno a FVG para entrar (estricto)", group=grpX)
 minScore = input.int(4, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
