@@ -385,12 +385,12 @@ if buySig
     usdSlB = rB * pvQty
     txtB = "COMPRA " + str.tostring(scoreBull) + "/7"
     txtB := txtB + (swBullEQ ? " | EQL" : "") + (swBullSMT ? " | SMT" : "")
-    txtB := txtB + "\nE " + f_fmt(close) + " | SL " + f_fmt(slB)
+    txtB := txtB + " | E " + f_fmt(close) + " | SL " + f_fmt(slB)
     if usdMode
         txtB := txtB + " (-" + str.tostring(usdSlB, "#") + " USD)"
-        txtB := txtB + "\nTP " + f_fmt(t1B) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
+        txtB := txtB + " | TP " + f_fmt(t1B) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
     else
-        txtB := txtB + "\nTP1 " + f_fmt(t1B) + " | TP2 " + f_fmt(t2B)
+        txtB := txtB + " | TP1 " + f_fmt(t1B) + " | TP2 " + f_fmt(t2B)
     label.new(bar_index, low, txtB, style=label.style_label_up, color=cLong, textcolor=color.white, size=size.small)
     if showLvls
         line.new(bar_index, close, bar_index + lvlExt, close, color=cLE, width=2)
@@ -417,12 +417,12 @@ if sellSig
     usdSlS = rS * pvQty
     txtS = "VENTA " + str.tostring(scoreBear) + "/7"
     txtS := txtS + (swBearEQ ? " | EQH" : "") + (swBearSMT ? " | SMT" : "")
-    txtS := txtS + "\nE " + f_fmt(close) + " | SL " + f_fmt(slS)
+    txtS := txtS + " | E " + f_fmt(close) + " | SL " + f_fmt(slS)
     if usdMode
         txtS := txtS + " (-" + str.tostring(usdSlS, "#") + " USD)"
-        txtS := txtS + "\nTP " + f_fmt(t1S) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
+        txtS := txtS + " | TP " + f_fmt(t1S) + " (+" + str.tostring(tgtUSD, "#") + " USD)"
     else
-        txtS := txtS + "\nTP1 " + f_fmt(t1S) + " | TP2 " + f_fmt(t2S)
+        txtS := txtS + " | TP1 " + f_fmt(t1S) + " | TP2 " + f_fmt(t2S)
     label.new(bar_index, high, txtS, style=label.style_label_down, color=cShort, textcolor=color.white, size=size.small)
     if showLvls
         line.new(bar_index, close, bar_index + lvlExt, close, color=cLE, width=2)
