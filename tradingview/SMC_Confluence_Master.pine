@@ -107,8 +107,20 @@ eqlDiff = math.abs(lastPL - prevPL)
 eqhTag = not na(lastPH) and not na(prevPH) and eqhDiff <= eqTolA * atr
 eqlTag = not na(lastPL) and not na(prevPL) and eqlDiff <= eqTolA * atr
 
-plot(showSw ? lastPH : na, "Swing high", color=color.new(color.red, 55), style=plot.style_linebr)
-plot(showSw ? lastPL : na, "Swing low", color=color.new(color.green, 55), style=plot.style_linebr)
+// Cada swing es un segmento FIJO: nace en su pivote, se extiende hasta
+// que lo barren y ahi se queda quieto (no salta al siguiente nivel)
+colPhLn = color.new(color.red, 45)
+colPlLn = color.new(color.green, 45)
+var line phLine = na
+var line plLine = na
+if showSw and not na(ph)
+    phLine := line.new(bar_index - pivLen, ph, bar_index, ph, color=colPhLn)
+if showSw and not na(plv)
+    plLine := line.new(bar_index - pivLen, plv, bar_index, plv, color=colPlLn)
+if not na(phLine)
+    line.set_x2(phLine, bar_index)
+if not na(plLine)
+    line.set_x2(plLine, bar_index)
 
 upperWick = high - math.max(open, close)
 lowerWick = math.min(open, close) - low
@@ -125,6 +137,12 @@ sweepBull2a = allow2 and not na(lastPL) and low[1] < lastPL
 sweepBull2  = sweepBull2a and close[1] <= lastPL and close > lastPL
 sweepBear = sweepBear1 or sweepBear2
 sweepBull = sweepBull1 or sweepBull2
+
+// El nivel barrido deja de extenderse y queda fijo donde fue tomado
+if sweepBear
+    phLine := na
+if sweepBull
+    plLine := na
 
 colSwBear = color.new(color.red, 20)
 colSwBull = color.new(color.green, 20)
