@@ -255,8 +255,8 @@ lvlExt   = input.int(20, "Extension de las lineas (velas)", minval=5, group=grpX
 grpR = "8b) Modo de riesgo"
 modoSLTP = input.string("ATR (estructura)", "Modo de SL/TP", options=["ATR (estructura)", "USD fijo"], group=grpR)
 qtyCt    = input.int(1, "Contratos", minval=1, group=grpR)
-riskUSD  = input.float(500.0, "Perdida maxima (USD)", minval=1, group=grpR)
-tgtUSD   = input.float(2200.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
+riskUSD  = input.float(400.0, "Perdida maxima (USD)", minval=1, group=grpR)
+tgtUSD   = input.float(800.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
 fitStr   = input.bool(true, "Solo entrar si el SL estructural cabe en la perdida maxima", group=grpR)
 
 var int   swBearBar = na
