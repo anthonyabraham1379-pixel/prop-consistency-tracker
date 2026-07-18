@@ -34,7 +34,12 @@
 //  - Sesgo HTF con vela HTF CERRADA (idiom [1] + lookahead_on).
 //  - Pivotes confirmados con retardo fijo, nunca se redibujan.
 // ===================================================================
-strategy("SMC Confluence Master v2 Backtest", "SMC BT", overlay=true, initial_capital=25000, commission_type=strategy.commission.cash_per_contract, commission_value=2.5, slippage=1, process_orders_on_close=true, max_boxes_count=100, max_labels_count=300, max_lines_count=300)
+strategy("SMC Confluence Master v2 Backtest", "SMC BT",
+     overlay=true, initial_capital=25000,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=2.5, slippage=1,
+     process_orders_on_close=true,
+     max_boxes_count=100, max_labels_count=300, max_lines_count=300)
 
 // ========== 1) FILTRO HORARIO (America/Chicago) ==========
 grpS = "1) Filtro horario (hora CT)"
@@ -129,8 +134,10 @@ sweepBull = sweepBull1 or sweepBull2
 
 colSwBear = color.new(color.red, 20)
 colSwBull = color.new(color.green, 20)
-plotshape(sweepBear, title="Barrido de high", style=shape.triangledown, location=location.abovebar, color=colSwBear, size=size.tiny)
-plotshape(sweepBull, title="Barrido de low", style=shape.triangleup, location=location.belowbar, color=colSwBull, size=size.tiny)
+plotshape(sweepBear, title="Barrido de high", style=shape.triangledown,
+     location=location.abovebar, color=colSwBear, size=size.tiny)
+plotshape(sweepBull, title="Barrido de low", style=shape.triangleup,
+     location=location.belowbar, color=colSwBull, size=size.tiny)
 
 // ========== 4) SMT (divergencia con simbolo correlacionado) ==========
 grpM = "4) SMT (ES <-> NQ)"
@@ -421,7 +428,9 @@ if closeSes and strategy.position_size != 0 and not inNY and not (useLDN and inL
 // ========== 10) PANEL DE ESTADO ==========
 grpD = "10) Panel"
 showTbl = input.bool(true, "Mostrar panel de estado", group=grpD)
-var table tbl = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 60))
+var table tbl = table.new(position.top_right, 2, 9,
+     bgcolor=color.new(color.black, 20), border_width=1,
+     border_color=color.new(color.gray, 60))
 if showTbl and barstate.islast
     cUp = color.new(color.green, 0)
     cDn = color.new(color.red, 0)

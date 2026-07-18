@@ -31,7 +31,8 @@
 //  - Sesgo HTF con vela HTF CERRADA (idiom [1] + lookahead_on).
 //  - Pivotes confirmados con retardo fijo, nunca se redibujan.
 // ===================================================================
-indicator("SMC Confluence Master v2", "SMC v2", overlay=true, max_boxes_count=100, max_labels_count=300, max_lines_count=300)
+indicator("SMC Confluence Master v2", "SMC v2", overlay=true,
+     max_boxes_count=100, max_labels_count=300, max_lines_count=300)
 
 // ========== 1) FILTRO HORARIO (America/Chicago) ==========
 grpS = "1) Filtro horario (hora CT)"
@@ -126,8 +127,10 @@ sweepBull = sweepBull1 or sweepBull2
 
 colSwBear = color.new(color.red, 20)
 colSwBull = color.new(color.green, 20)
-plotshape(sweepBear, title="Barrido de high", style=shape.triangledown, location=location.abovebar, color=colSwBear, size=size.tiny)
-plotshape(sweepBull, title="Barrido de low", style=shape.triangleup, location=location.belowbar, color=colSwBull, size=size.tiny)
+plotshape(sweepBear, title="Barrido de high", style=shape.triangledown,
+     location=location.abovebar, color=colSwBear, size=size.tiny)
+plotshape(sweepBull, title="Barrido de low", style=shape.triangleup,
+     location=location.belowbar, color=colSwBull, size=size.tiny)
 
 // ========== 4) SMT (divergencia con simbolo correlacionado) ==========
 grpM = "4) SMT (ES <-> NQ)"
@@ -441,7 +444,9 @@ alertcondition(sellSig, "SMC Master - VENTA", "Setup de VENTA confirmado")
 // ========== 9) PANEL DE ESTADO ==========
 grpD = "9) Panel"
 showTbl = input.bool(true, "Mostrar panel de estado", group=grpD)
-var table tbl = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 60))
+var table tbl = table.new(position.top_right, 2, 9,
+     bgcolor=color.new(color.black, 20), border_width=1,
+     border_color=color.new(color.gray, 60))
 if showTbl and barstate.islast
     cUp = color.new(color.green, 0)
     cDn = color.new(color.red, 0)
