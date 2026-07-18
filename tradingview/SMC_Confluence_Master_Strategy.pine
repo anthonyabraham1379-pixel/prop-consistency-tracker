@@ -121,9 +121,9 @@ colPhLn = color.new(color.red, 45)
 colPlLn = color.new(color.green, 45)
 var line phLine = na
 var line plLine = na
-if showSw and not na(ph)
+if showSw and not na(ph) and barstate.isconfirmed
     phLine := line.new(bar_index - pivLen, ph, bar_index, ph, color=colPhLn)
-if showSw and not na(plv)
+if showSw and not na(plv) and barstate.isconfirmed
     plLine := line.new(bar_index - pivLen, plv, bar_index, plv, color=colPlLn)
 if not na(phLine)
     line.set_x2(phLine, bar_index)
@@ -147,16 +147,16 @@ sweepBear = sweepBear1 or sweepBear2
 sweepBull = sweepBull1 or sweepBull2
 
 // El nivel barrido deja de extenderse y queda fijo donde fue tomado
-if sweepBear
+if sweepBear and barstate.isconfirmed
     phLine := na
-if sweepBull
+if sweepBull and barstate.isconfirmed
     plLine := na
 
 colSwBear = color.new(color.red, 20)
 colSwBull = color.new(color.green, 20)
-plotshape(sweepBear, title="Barrido de high", style=shape.triangledown,
+plotshape(sweepBear and barstate.isconfirmed, title="Barrido de high", style=shape.triangledown,
      location=location.abovebar, color=colSwBear, size=size.tiny)
-plotshape(sweepBull, title="Barrido de low", style=shape.triangleup,
+plotshape(sweepBull and barstate.isconfirmed, title="Barrido de low", style=shape.triangleup,
      location=location.belowbar, color=colSwBull, size=size.tiny)
 
 // ========== 4) SMT (divergencia con simbolo correlacionado) ==========
@@ -213,13 +213,13 @@ var int   bearFvgBar = na
 var box   bullBoxA = na
 var box   bearBoxA = na
 
-if bullFVG
+if bullFVG and barstate.isconfirmed
     bullFvgTop := low
     bullFvgBot := high[2]
     bullFvgBar := bar_index
     if showFVG
         bullBoxA := box.new(bar_index - 2, low, bar_index, high[2], border_color=fvgUpBor, bgcolor=fvgUpBg)
-if bearFVG
+if bearFVG and barstate.isconfirmed
     bearFvgTop := low[2]
     bearFvgBot := high
     bearFvgBar := bar_index
@@ -233,7 +233,7 @@ if not na(bullBoxA) and not na(bullFvgBot)
 if not na(bearBoxA) and not na(bearFvgTop)
     box.set_right(bearBoxA, bar_index)
 
-if not na(bullFvgBot) and close < bullFvgBot
+if not na(bullFvgBot) and close < bullFvgBot and barstate.isconfirmed
     bullFvgTop := na
     bullFvgBot := na
     bullFvgBar := na
@@ -241,7 +241,7 @@ if not na(bullFvgBot) and close < bullFvgBot
         box.set_border_color(bullBoxA, fvgOffBor)
         box.set_bgcolor(bullBoxA, fvgOffBg)
         bullBoxA := na
-if not na(bearFvgTop) and close > bearFvgTop
+if not na(bearFvgTop) and close > bearFvgTop and barstate.isconfirmed
     bearFvgTop := na
     bearFvgBot := na
     bearFvgBar := na
