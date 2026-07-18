@@ -253,6 +253,7 @@ tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
 showLvls = input.bool(true, "Dibujar lineas E/SL/TP", group=grpX)
 lvlExt   = input.int(20, "Extension de las lineas (velas)", minval=5, group=grpX)
 
+// Perdida maxima (USD): tope de riesgo por operacion EN AMBOS MODOS.
 // Modo USD: SL y TP fijos en dolares segun el valor del punto del contrato.
 // Con el filtro activado solo entra cuando el SL estructural (extremo del
 // barrido + colchon) cabe dentro de la perdida maxima -> stop logico Y acotado.
@@ -261,7 +262,7 @@ modoSLTP = input.string("ATR (estructura)", "Modo de SL/TP", options=["ATR (estr
 qtyCt    = input.int(1, "Contratos", minval=1, group=grpR)
 riskUSD  = input.float(400.0, "Perdida maxima (USD)", minval=1, group=grpR)
 tgtUSD   = input.float(800.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
-fitStr   = input.bool(true, "Solo entrar si el SL estructural cabe en la perdida maxima", group=grpR)
+fitStr   = input.bool(true, "Descartar setups cuyo SL cueste mas que la perdida maxima", group=grpR)
 
 var int   swBearBar = na
 var float swBearExt = na
@@ -358,8 +359,8 @@ riskPts = riskUSD / pvQty
 tgtPts  = tgtUSD / pvQty
 slStructBull = swBullExt - slBuf * atr
 slStructBear = swBearExt + slBuf * atr
-riskOKBull = not usdMode or not fitStr or (close - slStructBull) <= riskPts
-riskOKBear = not usdMode or not fitStr or (slStructBear - close) <= riskPts
+riskOKBull = not fitStr or (close - slStructBull) <= riskPts
+riskOKBear = not fitStr or (slStructBear - close) <= riskPts
 
 gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull
 gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear
