@@ -410,6 +410,12 @@ if buySig and strategy.position_size == 0
     posTP2 := usdMode ? close + tgtPts : close + tp2R * (close - posSL)
     beDone := false
     strategy.entry("Long", strategy.long, qty=qtyCt)
+    // salidas colocadas en la MISMA vela: el stop protege desde el primer tick
+    if usdMode
+        strategy.exit("XL", "Long", stop=posSL, limit=posTP1)
+    else
+        strategy.exit("XL1", "Long", qty_percent=50, stop=posSL, limit=posTP1)
+        strategy.exit("XL2", "Long", qty_percent=100, stop=posSL, limit=posTP2)
 
 if sellSig and strategy.position_size == 0 and not buySig
     posEntry := close
@@ -418,6 +424,11 @@ if sellSig and strategy.position_size == 0 and not buySig
     posTP2 := usdMode ? close - tgtPts : close - tp2R * (posSL - close)
     beDone := false
     strategy.entry("Short", strategy.short, qty=qtyCt)
+    if usdMode
+        strategy.exit("XS", "Short", stop=posSL, limit=posTP1)
+    else
+        strategy.exit("XS1", "Short", qty_percent=50, stop=posSL, limit=posTP1)
+        strategy.exit("XS2", "Short", qty_percent=100, stop=posSL, limit=posTP2)
 
 // Breakeven: en modo USD se activa a mitad de camino al TP;
 // en modo ATR se activa cuando el precio toca TP1
