@@ -39,7 +39,7 @@ strategy("SMC Confluence Master v2 Backtest", "SMC BT",
      overlay=true, initial_capital=25000,
      commission_type=strategy.commission.cash_per_contract,
      commission_value=2.5, slippage=1,
-     process_orders_on_close=true,
+     process_orders_on_close=true, fill_orders_on_standard_ohlc=true,
      max_boxes_count=100, max_labels_count=300, max_lines_count=300)
 
 // ========== 1) FILTRO HORARIO (America/Chicago) ==========
