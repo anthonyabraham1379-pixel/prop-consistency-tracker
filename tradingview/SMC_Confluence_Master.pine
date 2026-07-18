@@ -38,7 +38,7 @@ indicator("SMC Confluence Master v2", "SMC v2", overlay=true,
 // ========== 1) FILTRO HORARIO (America/Chicago) ==========
 grpS = "1) Filtro horario (hora CT)"
 useSes   = input.bool(true,  "Senales solo en sesiones activas", group=grpS)
-sesNY    = input.session("0730-1030", "Sesion NY AM (tu ventana)", group=grpS)
+sesNY    = input.session("0730-1400", "Sesion NY AM (tu ventana)", group=grpS)
 useLDN   = input.bool(false, "Incluir Londres", group=grpS)
 sesLDN   = input.session("0200-0500", "Sesion Londres", group=grpS)
 avoidLun = input.bool(true,  "Bloquear mediodia (lunch)", group=grpS)
@@ -61,7 +61,7 @@ useHTF  = input.bool(true, "Filtrar con sesgo del TF mayor", group=grpB)
 autoHTF = input.bool(true, "TF mayor automatico (15m->1H, 1H->4H)", group=grpB)
 htfTF   = input.timeframe("60", "TF mayor manual", group=grpB)
 htfLen  = input.int(50, "EMA del TF mayor", minval=5, group=grpB)
-useVW   = input.bool(true, "Filtrar con VWAP de sesion", group=grpB)
+useVW   = input.bool(false, "Filtrar con VWAP de sesion", group=grpB)
 showVW  = input.bool(true, "Mostrar VWAP", group=grpB)
 
 tfSec   = timeframe.in_seconds()
@@ -84,7 +84,7 @@ grpP = "3) Barrido de liquidez"
 pivLen = input.int(5, "Longitud de pivote (swings)", minval=2, group=grpP)
 eqTolA = input.float(0.25, "Tolerancia EQH/EQL (x ATR)", step=0.05, group=grpP)
 wickA  = input.float(0.5, "Mecha minima de rechazo (x ATR)", step=0.1, group=grpP)
-allow2 = input.bool(true, "Permitir barrido en 2 velas", group=grpP)
+allow2 = input.bool(false, "Permitir barrido en 2 velas", group=grpP)
 showSw = input.bool(true, "Mostrar ultimos swings", group=grpP)
 
 atr = ta.atr(14)
@@ -174,7 +174,7 @@ smtBullNow = useSMT and sweepBull and corrOK and not na(corrPL) and corrL > corr
 
 // ========== 5) VOLUMEN ==========
 grpV = "5) Volumen"
-useVol  = input.bool(true, "Usar volumen como confluencia", group=grpV)
+useVol  = input.bool(false, "Usar volumen como confluencia", group=grpV)
 volLen  = input.int(20, "Media de volumen", group=grpV)
 volMult = input.float(1.3, "Volumen minimo del barrido (x media)", step=0.1, group=grpV)
 volSma  = ta.sma(nz(volume), volLen)
@@ -248,7 +248,7 @@ inBearFvg = not na(bearFvgTop) and high >= bearFvgBot and close <= bearFvgTop
 // ========== 7) CONFIRMACION MSS / CHoCH ==========
 grpC = "7) Confirmacion MSS (CHoCH)"
 reqMSS  = input.bool(true, "Exigir MSS tras el barrido (recomendado)", group=grpC)
-mssL    = input.int(3, "Longitud del pivote menor (estructura)", minval=2, group=grpC)
+mssL    = input.int(2, "Longitud del pivote menor (estructura)", minval=2, group=grpC)
 showMss = input.bool(true, "Marcar MSS en el grafico", group=grpC)
 
 mph = ta.pivothigh(high, mssL, mssL)
@@ -262,9 +262,9 @@ if not na(mpl)
 
 // ========== 8) MAQUINA DE SETUP + SCORE ==========
 grpX = "8) Senal y riesgo"
-winBars  = input.int(15, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
+winBars  = input.int(4, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
 reqFVG   = input.bool(false, "Exigir retorno a FVG para entrar (estricto)", group=grpX)
-minScore = input.int(4, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
+minScore = input.int(5, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
 tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
@@ -277,9 +277,9 @@ lvlExt   = input.int(20, "Extension de las lineas (velas)", minval=5, group=grpX
 // barrido + colchon) cabe dentro de la perdida maxima -> stop logico Y acotado.
 grpR = "8b) Modo de riesgo"
 modoSLTP = input.string("ATR (estructura)", "Modo de SL/TP", options=["ATR (estructura)", "USD fijo"], group=grpR)
-qtyCt    = input.int(1, "Contratos", minval=1, group=grpR)
+qtyCt    = input.int(2, "Contratos", minval=1, group=grpR)
 riskUSD  = input.float(400.0, "Perdida maxima (USD)", minval=1, group=grpR)
-tgtUSD   = input.float(800.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
+tgtUSD   = input.float(1000.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
 fitStr   = input.bool(true, "Descartar setups cuyo SL cueste mas que la perdida maxima", group=grpR)
 
 var int   swBearBar = na
