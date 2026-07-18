@@ -370,6 +370,26 @@ gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
 
+// Embudo de diagnostico: cuantos setups sobreviven a cada filtro
+var int cntSweep = 0
+var int cntMss   = 0
+var int cntListo = 0
+var int cntSes   = 0
+var int cntIn    = 0
+if sweepBull or sweepBear
+    cntSweep += 1
+if mssBullHit or mssBearHit
+    cntMss += 1
+readyBull = winBull and mssBullOK and entryBullTrig and riskOKBull
+readyBear = winBear and mssBearOK and entryBearTrig and riskOKBear
+newReady = (readyBull and not readyBull[1]) or (readyBear and not readyBear[1])
+if newReady
+    cntListo += 1
+    if sesionOK
+        cntSes += 1
+if buySig or sellSig
+    cntIn += 1
+
 // ========== 9) EJECUCION DEL BACKTEST ==========
 grpT = "9) Backtest"
 useBE    = input.bool(true, "Mover SL a breakeven a mitad de camino", group=grpT)
@@ -428,7 +448,7 @@ if closeSes and strategy.position_size != 0 and not inNY and not (useLDN and inL
 // ========== 10) PANEL DE ESTADO ==========
 grpD = "10) Panel"
 showTbl = input.bool(true, "Mostrar panel de estado", group=grpD)
-var table tbl = table.new(position.top_right, 2, 9,
+var table tbl = table.new(position.top_right, 2, 10,
      bgcolor=color.new(color.black, 20), border_width=1,
      border_color=color.new(color.gray, 60))
 if showTbl and barstate.islast
@@ -480,3 +500,7 @@ if showTbl and barstate.islast
     table.cell(tbl, 1, 7, setupTxt, text_color=setupCol, text_size=size.tiny)
     table.cell(tbl, 0, 8, "Modo", text_color=color.white, text_size=size.tiny)
     table.cell(tbl, 1, 8, modoTxt, text_color=cNe, text_size=size.tiny)
+    funTxt = str.tostring(cntSweep) + " > " + str.tostring(cntMss) + " > " + str.tostring(cntListo)
+    funTxt := funTxt + " > " + str.tostring(cntSes) + " > " + str.tostring(cntIn)
+    table.cell(tbl, 0, 9, "Embudo B>M>L>S>E", text_color=color.white, text_size=size.tiny)
+    table.cell(tbl, 1, 9, funTxt, text_color=cWa, text_size=size.tiny)
