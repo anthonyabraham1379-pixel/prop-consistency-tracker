@@ -242,7 +242,7 @@ if not na(mpl)
 grpX = "8) Senal y riesgo"
 winBars  = input.int(15, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
 reqFVG   = input.bool(true, "Exigir retorno a FVG para entrar", group=grpX)
-minScore = input.int(5, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
+minScore = input.int(4, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
 tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
@@ -328,13 +328,13 @@ if mssBearHit
 sHtfB = not useHTF or htfBull ? 1 : 0
 sVwB  = not useVW or vwBull ? 1 : 0
 sVolB = not useVol or swBullVol ? 1 : 0
-sSmtB = not useSMT or swBullSMT ? 1 : 0
+sSmtB = not useSMT or not corrOK or swBullSMT ? 1 : 0
 scoreBull = 2 + sHtfB + sVwB + sVolB + sSmtB + (swBullEQ ? 1 : 0)
 
 sHtfS = not useHTF or htfBear ? 1 : 0
 sVwS  = not useVW or vwBear ? 1 : 0
 sVolS = not useVol or swBearVol ? 1 : 0
-sSmtS = not useSMT or swBearSMT ? 1 : 0
+sSmtS = not useSMT or not corrOK or swBearSMT ? 1 : 0
 scoreBear = 2 + sHtfS + sVwS + sVolS + sSmtS + (swBearEQ ? 1 : 0)
 
 winBull = not na(swBullBar) and (bar_index - swBullBar) <= winBars and not bullFired
