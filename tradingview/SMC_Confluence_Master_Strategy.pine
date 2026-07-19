@@ -54,14 +54,28 @@ sesLUN   = input.session("1130-1300", "Lunch NY", group=grpS)
 tzStr    = input.string("America/Chicago", "Zona horaria", group=grpS)
 showBg   = input.bool(true, "Sombrear sesiones", group=grpS)
 
+// Filtro de noticias: ventanas de reloj fijo donde NO se abren entradas
+// (posiciones ya abiertas siguen su curso con su stop). APAGADO por defecto
+// para no alterar el sistema validado; activalo y mide en el Probador.
+grpN = "1b) Filtro de noticias (hora CT)"
+useNews = input.bool(false, "Bloquear ventanas de noticias", group=grpN)
+news1   = input.session("0725-0740", "Ventana 1: datos de las 8:30 ET", group=grpN)
+news2   = input.session("0855-0910", "Ventana 2: datos de las 10:00 ET", group=grpN)
+news3   = input.session("1255-1315", "Ventana 3: FOMC (dias de Fed)", group=grpN)
+
 inNY  = not na(time(timeframe.period, sesNY, tzStr))
 inLDN = not na(time(timeframe.period, sesLDN, tzStr))
 inLUN = not na(time(timeframe.period, sesLUN, tzStr))
-sesionOK = (not useSes or inNY or (useLDN and inLDN)) and not (avoidLun and inLUN)
+inN1 = not na(time(timeframe.period, news1, tzStr))
+inN2 = not na(time(timeframe.period, news2, tzStr))
+inN3 = not na(time(timeframe.period, news3, tzStr))
+inNews = useNews and (inN1 or inN2 or inN3)
+sesionOK = (not useSes or inNY or (useLDN and inLDN)) and not (avoidLun and inLUN) and not inNews
 
 bgcolor(showBg and inNY ? color.new(color.teal, 93) : na, title="Fondo NY")
 bgcolor(showBg and useLDN and inLDN ? color.new(color.blue, 94) : na, title="Fondo Londres")
 bgcolor(showBg and avoidLun and inLUN ? color.new(color.gray, 92) : na, title="Fondo lunch")
+bgcolor(showBg and inNews ? color.new(color.red, 88) : na, title="Fondo noticias")
 
 // ========== 2) SESGO: TF MAYOR + VWAP ==========
 grpB = "2) Sesgo (TF mayor + VWAP)"
@@ -527,8 +541,10 @@ if showTbl and barstate.islast
         modoTxt := modoTxt + " | USD -" + str.tostring(riskUSD, "#") + "/+" + str.tostring(tgtUSD, "#")
     table.cell(tbl, 0, 0, "SMC MASTER v2", text_color=color.white, text_size=size.small)
     table.cell(tbl, 1, 0, syminfo.ticker + " " + timeframe.period, text_color=color.white, text_size=size.small)
+    sesTxt = inNews ? "NOTICIAS" : sesionOK ? "ACTIVA" : "FUERA"
+    sesCol = inNews ? cWa : sesionOK ? cUp : cDn
     table.cell(tbl, 0, 1, "Sesion", text_color=color.white, text_size=size.tiny)
-    table.cell(tbl, 1, 1, sesionOK ? "ACTIVA" : "FUERA", text_color=sesionOK ? cUp : cDn, text_size=size.tiny)
+    table.cell(tbl, 1, 1, sesTxt, text_color=sesCol, text_size=size.tiny)
     table.cell(tbl, 0, 2, "Sesgo TF mayor", text_color=color.white, text_size=size.tiny)
     table.cell(tbl, 1, 2, htfTxt, text_color=htfCol, text_size=size.tiny)
     table.cell(tbl, 0, 3, "VWAP", text_color=color.white, text_size=size.tiny)
