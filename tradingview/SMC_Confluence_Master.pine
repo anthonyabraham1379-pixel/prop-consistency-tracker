@@ -51,9 +51,9 @@ showBg   = input.bool(true, "Sombrear sesiones", group=grpS)
 // para no alterar el sistema validado; activalo y mide en el Probador.
 grpN = "1b) Filtro de noticias (hora CT)"
 useNews = input.bool(false, "Bloquear ventanas de noticias", group=grpN)
-news1   = input.session("0725-0740", "Ventana 1: datos de las 8:30 ET", group=grpN)
-news2   = input.session("0855-0910", "Ventana 2: datos de las 10:00 ET", group=grpN)
-news3   = input.session("1255-1315", "Ventana 3: FOMC (dias de Fed)", group=grpN)
+news1   = input.session("0725-0735", "Ventana 1: datos de las 8:30 ET", group=grpN)
+news2   = input.session("0855-0905", "Ventana 2: datos de las 10:00 ET", group=grpN)
+news3   = input.session("1255-1305", "Ventana 3: FOMC (dias de Fed)", group=grpN)
 
 inNY  = not na(time(timeframe.period, sesNY, tzStr))
 inLDN = not na(time(timeframe.period, sesLDN, tzStr))
