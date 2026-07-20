@@ -95,7 +95,7 @@ plot(showVW ? vwapVal : na, "VWAP sesion", color=color.new(color.orange, 0), lin
 
 // ========== 3) SWINGS Y BARRIDO DE LIQUIDEZ ==========
 grpP = "3) Barrido de liquidez"
-pivLen = input.int(5, "Longitud de pivote (swings)", minval=2, group=grpP)
+pivLen = input.int(4, "Longitud de pivote (swings)", minval=2, group=grpP)
 eqTolA = input.float(0.25, "Tolerancia EQH/EQL (x ATR)", step=0.05, group=grpP)
 wickA  = input.float(0.5, "Mecha minima de rechazo (x ATR)", step=0.1, group=grpP)
 allow2 = input.bool(false, "Permitir barrido en 2 velas", group=grpP)
@@ -276,7 +276,7 @@ if not na(mpl)
 
 // ========== 8) MAQUINA DE SETUP + SCORE ==========
 grpX = "8) Senal y riesgo"
-winBars  = input.int(4, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
+winBars  = input.int(7, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
 reqFVG   = input.bool(false, "Exigir retorno a FVG para entrar (estricto)", group=grpX)
 minScore = input.int(5, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
@@ -291,7 +291,7 @@ lvlExt   = input.int(20, "Extension de las lineas (velas)", minval=5, group=grpX
 // barrido + colchon) cabe dentro de la perdida maxima -> stop logico Y acotado.
 grpR = "8b) Modo de riesgo"
 modoSLTP = input.string("ATR (estructura)", "Modo de SL/TP", options=["ATR (estructura)", "USD fijo"], group=grpR)
-qtyCt    = input.int(2, "Contratos", minval=1, group=grpR)
+qtyCt    = input.int(1, "Contratos", minval=1, group=grpR)
 riskUSD  = input.float(400.0, "Perdida maxima (USD)", minval=1, group=grpR)
 tgtUSD   = input.float(1000.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
 fitStr   = input.bool(true, "Descartar setups cuyo SL cueste mas que la perdida maxima", group=grpR)
