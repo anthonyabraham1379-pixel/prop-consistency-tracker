@@ -41,7 +41,7 @@ strategy("SMC Confluence Master v2 Backtest", "SMC BT",
      commission_type=strategy.commission.cash_per_contract,
      commission_value=2.5, slippage=1,
      process_orders_on_close=true, fill_orders_on_standard_ohlc=true,
-     max_boxes_count=100, max_labels_count=300, max_lines_count=300)
+     max_boxes_count=300, max_labels_count=300, max_lines_count=300)
 
 // ========== 1) FILTRO HORARIO (America/Chicago) ==========
 grpS = "1) Filtro horario (hora CT)"
@@ -290,6 +290,8 @@ minScore = input.int(5, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
 tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
+showZone = input.bool(true, "Pintar zonas verde/rojo de cada senal", group=grpX)
+zoneExt  = input.int(20, "Extension de las zonas (velas)", minval=5, group=grpX)
 
 // Modo USD: SL y TP fijos en dolares segun el valor del punto del contrato.
 // Con el filtro activado solo entra cuando el SL estructural (extremo del
@@ -450,6 +452,11 @@ if buySig and strategy.position_size == 0
     else
         strategy.exit("XL1", "Long", qty_percent=50, stop=posSL, limit=posTP1)
         strategy.exit("XL2", "Long", qty_percent=100, stop=posSL, limit=posTP2)
+    if showZone
+        box.new(bar_index, posTP2, bar_index + zoneExt, posEntry, border_color=color.new(color.green, 55), bgcolor=color.new(color.green, 82))
+        box.new(bar_index, posEntry, bar_index + zoneExt, posSL, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
+        line.new(bar_index, posTP1, bar_index + zoneExt, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
+        label.new(bar_index, posSL, "LONG", style=label.style_label_up, color=color.new(color.green, 15), textcolor=color.white, size=size.tiny)
     aTxtB = "SMC COMPRA " + syminfo.ticker + " (" + timeframe.period + "m)"
     aTxtB := aTxtB + " | Score " + str.tostring(scoreBull) + "/7"
     aTxtB := aTxtB + " | E " + f_fmt(close) + " SL " + f_fmt(posSL)
@@ -468,6 +475,11 @@ if sellSig and strategy.position_size == 0 and not buySig
     else
         strategy.exit("XS1", "Short", qty_percent=50, stop=posSL, limit=posTP1)
         strategy.exit("XS2", "Short", qty_percent=100, stop=posSL, limit=posTP2)
+    if showZone
+        box.new(bar_index, posEntry, bar_index + zoneExt, posTP2, border_color=color.new(color.green, 55), bgcolor=color.new(color.green, 82))
+        box.new(bar_index, posSL, bar_index + zoneExt, posEntry, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
+        line.new(bar_index, posTP1, bar_index + zoneExt, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
+        label.new(bar_index, posSL, "SHORT", style=label.style_label_down, color=color.new(color.red, 15), textcolor=color.white, size=size.tiny)
     aTxtS = "SMC VENTA " + syminfo.ticker + " (" + timeframe.period + "m)"
     aTxtS := aTxtS + " | Score " + str.tostring(scoreBear) + "/7"
     aTxtS := aTxtS + " | E " + f_fmt(close) + " SL " + f_fmt(posSL)
