@@ -291,7 +291,6 @@ slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
 tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
 showZone = input.bool(true, "Pintar zonas verde/rojo de cada senal", group=grpX)
-zoneExt  = input.int(20, "Extension de las zonas (velas)", minval=5, group=grpX)
 
 // Modo USD: SL y TP fijos en dolares segun el valor del punto del contrato.
 // Con el filtro activado solo entra cuando el SL estructural (extremo del
@@ -433,6 +432,10 @@ grpT = "9) Backtest"
 useBE    = input.bool(true, "Mover SL a breakeven a mitad de camino", group=grpT)
 closeSes = input.bool(true, "Cerrar posiciones al terminar la sesion", group=grpT)
 
+var box  zoneG  = na
+var box  zoneR  = na
+var line zoneT1 = na
+
 var float posEntry = na
 var float posSL  = na
 var float posTP1 = na
@@ -453,9 +456,9 @@ if buySig and strategy.position_size == 0
         strategy.exit("XL1", "Long", qty_percent=50, stop=posSL, limit=posTP1)
         strategy.exit("XL2", "Long", qty_percent=100, stop=posSL, limit=posTP2)
     if showZone
-        box.new(bar_index, posTP2, bar_index + zoneExt, posEntry, border_color=color.new(color.green, 55), bgcolor=color.new(color.green, 82))
-        box.new(bar_index, posEntry, bar_index + zoneExt, posSL, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
-        line.new(bar_index, posTP1, bar_index + zoneExt, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
+        zoneG := box.new(bar_index, posTP2, bar_index + 1, posEntry, border_color=color.new(color.green, 55), bgcolor=color.new(color.green, 82))
+        zoneR := box.new(bar_index, posEntry, bar_index + 1, posSL, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
+        zoneT1 := line.new(bar_index, posTP1, bar_index + 1, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
         label.new(bar_index, posSL, "LONG", style=label.style_label_up, color=color.new(color.green, 15), textcolor=color.white, size=size.tiny)
     aTxtB = "SMC COMPRA " + syminfo.ticker + " (" + timeframe.period + "m)"
     aTxtB := aTxtB + " | Score " + str.tostring(scoreBull) + "/7"
@@ -476,9 +479,9 @@ if sellSig and strategy.position_size == 0 and not buySig
         strategy.exit("XS1", "Short", qty_percent=50, stop=posSL, limit=posTP1)
         strategy.exit("XS2", "Short", qty_percent=100, stop=posSL, limit=posTP2)
     if showZone
-        box.new(bar_index, posEntry, bar_index + zoneExt, posTP2, border_color=color.new(color.green, 55), bgcolor=color.new(color.green, 82))
-        box.new(bar_index, posSL, bar_index + zoneExt, posEntry, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
-        line.new(bar_index, posTP1, bar_index + zoneExt, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
+        zoneG := box.new(bar_index, posEntry, bar_index + 1, posTP2, border_color=color.new(color.green, 55), bgcolor=color.new(color.green, 82))
+        zoneR := box.new(bar_index, posSL, bar_index + 1, posEntry, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
+        zoneT1 := line.new(bar_index, posTP1, bar_index + 1, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
         label.new(bar_index, posSL, "SHORT", style=label.style_label_down, color=color.new(color.red, 15), textcolor=color.white, size=size.tiny)
     aTxtS = "SMC VENTA " + syminfo.ticker + " (" + timeframe.period + "m)"
     aTxtS := aTxtS + " | Score " + str.tostring(scoreBear) + "/7"
@@ -513,6 +516,16 @@ if strategy.position_size < 0
 
 if closeSes and strategy.position_size != 0 and not inNY and not (useLDN and inLDN)
     strategy.close_all(comment="Fin de sesion")
+
+// Las zonas pintadas viven mientras la operacion esta abierta y se
+// congelan donde cerro (el borde derecho ES la salida de la operacion)
+if strategy.position_size != 0
+    if not na(zoneG)
+        box.set_right(zoneG, bar_index)
+    if not na(zoneR)
+        box.set_right(zoneR, bar_index)
+    if not na(zoneT1)
+        line.set_x2(zoneT1, bar_index)
 
 // ========== 10) PANEL DE ESTADO ==========
 grpD = "10) Panel"
