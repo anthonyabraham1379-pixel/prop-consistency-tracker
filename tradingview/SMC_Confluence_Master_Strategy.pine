@@ -302,6 +302,16 @@ riskUSD  = input.float(400.0, "Perdida maxima (USD)", minval=1, group=grpR)
 tgtUSD   = input.float(1000.0, "Objetivo de ganancia (USD)", minval=1, group=grpR)
 fitStr   = input.bool(true, "Solo entrar si el SL estructural cabe en la perdida maxima", group=grpR)
 
+// Laboratorio de mejoras: TODO apagado por defecto. Activa UNA por vez
+// y mide en el Probador con rango de fechas fijo antes de adoptarla.
+grpQ = "8c) Mejoras experimentales"
+usePD   = input.bool(false, "Filtro Premium/Discount (shorts arriba, longs abajo)", group=grpQ)
+pdLen   = input.int(120, "Velas del rango P/D", minval=20, group=grpQ)
+useDisp = input.bool(false, "Exigir desplazamiento fuerte en el MSS", group=grpQ)
+dispMin = input.float(0.6, "Cuerpo minimo de la vela MSS (x ATR)", step=0.1, group=grpQ)
+useBOS  = input.bool(false, "Entradas de CONTINUACION por BOS", group=grpQ)
+bosWin  = input.int(10, "Ventana tras el BOS (velas)", minval=3, group=grpQ)
+
 var int   swBearBar = na
 var float swBearExt = na
 var float swBearMssLvl = na
@@ -309,6 +319,7 @@ var bool  swBearVol = false
 var bool  swBearSMT = false
 var bool  swBearEQ  = false
 var bool  swBearMss = false
+var bool  swBearDisp = false
 var bool  bearFired = false
 
 var int   swBullBar = na
@@ -318,6 +329,7 @@ var bool  swBullVol = false
 var bool  swBullSMT = false
 var bool  swBullEQ  = false
 var bool  swBullMss = false
+var bool  swBullDisp = false
 var bool  bullFired = false
 
 var int lastBullSweepBar = na
@@ -338,6 +350,7 @@ if sweepBear
     swBearSMT := smtBearNow
     swBearEQ  := eqhTag
     swBearMss := false
+    swBearDisp := false
     swBearMssLvl := na(minorPL) ? low : minorPL
     bearFired := false
     lastBearSweepBar := bar_index
@@ -348,6 +361,7 @@ if sweepBull
     swBullSMT := smtBullNow
     swBullEQ  := eqlTag
     swBullMss := false
+    swBullDisp := false
     swBullMssLvl := na(minorPH) ? high : minorPH
     bullFired := false
     lastBullSweepBar := bar_index
@@ -360,10 +374,12 @@ mssBullHit = not na(swBullBar) and not swBullMss and not na(swBullMssLvl) and cl
 mssBearHit = not na(swBearBar) and not swBearMss and not na(swBearMssLvl) and close < swBearMssLvl
 if mssBullHit
     swBullMss := true
+    swBullDisp := math.abs(close - open) >= dispMin * atr
     if showMss and barstate.isconfirmed
         label.new(bar_index, high, "MSS", style=label.style_label_down, color=cMssUp, textcolor=color.white, size=size.tiny)
 if mssBearHit
     swBearMss := true
+    swBearDisp := math.abs(close - open) >= dispMin * atr
     if showMss and barstate.isconfirmed
         label.new(bar_index, low, "MSS", style=label.style_label_up, color=cMssDn, textcolor=color.white, size=size.tiny)
 
@@ -400,10 +416,53 @@ slStructBear = swBearExt + slBuf * atr
 riskOKBull = not usdMode or not fitStr or (close - slStructBull) <= riskPts
 riskOKBear = not usdMode or not fitStr or (slStructBear - close) <= riskPts
 
-gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull
-gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear
+// Premium/Discount: rango de las ultimas pdLen velas; equilibrio al 50%
+pdHi = ta.highest(high, pdLen)
+pdLo = ta.lowest(low, pdLen)
+pdEq = (pdHi + pdLo) / 2
+pdLongOK  = not usePD or close < pdEq
+pdShortOK = not usePD or close > pdEq
+dispBullOK = not useDisp or swBullDisp
+dispBearOK = not useDisp or swBearDisp
+
+gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull and pdLongOK and dispBullOK
+gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear and pdShortOK and dispBearOK
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
+
+// BOS de CONTINUACION (experimental): cierre que rompe el swing A FAVOR
+// del sesgo HTF con cuerpo fuerte; la entrada es el retest del FVG creado
+bosBull = useBOS and not na(lastPH) and close > lastPH and math.abs(close - open) >= dispMin * atr and htfBull
+bosBear = useBOS and not na(lastPL) and close < lastPL and math.abs(close - open) >= dispMin * atr and htfBear
+
+var int   bosBullBar = na
+var float bosBullLvl = na
+var bool  bosBullFired = false
+var int   bosBearBar = na
+var float bosBearLvl = na
+var bool  bosBearFired = false
+
+if not na(bosBullBar) and (bar_index - bosBullBar) > bosWin
+    bosBullBar := na
+if not na(bosBearBar) and (bar_index - bosBearBar) > bosWin
+    bosBearBar := na
+if bosBull and barstate.isconfirmed
+    bosBullBar := bar_index
+    bosBullLvl := lastPH
+    bosBullFired := false
+if bosBear and barstate.isconfirmed
+    bosBearBar := bar_index
+    bosBearLvl := lastPL
+    bosBearFired := false
+
+contBullOK = not na(bosBullBar) and not bosBullFired and inBullFvg and not na(bullFvgBar) and bullFvgBar >= bosBullBar
+contBearOK = not na(bosBearBar) and not bosBearFired and inBearFvg and not na(bearFvgBar) and bearFvgBar >= bosBearBar
+buyContSig  = useBOS and contBullOK and sesionOK and barstate.isconfirmed
+sellContSig = useBOS and contBearOK and sesionOK and barstate.isconfirmed
+slContBull = bosBullLvl - slBuf * atr
+slContBear = bosBearLvl + slBuf * atr
+entLong  = buySig or buyContSig
+entShort = sellSig or sellContSig
 
 // Embudo de diagnostico: cuantos setups sobreviven a cada filtro
 var int cntSweep = 0
@@ -442,9 +501,11 @@ var float posTP1 = na
 var float posTP2 = na
 var bool  beDone = false
 
-if buySig and strategy.position_size == 0
+if entLong and strategy.position_size == 0
+    if buyContSig and not buySig
+        bosBullFired := true
     posEntry := close
-    posSL  := usdMode and not fitStr ? close - riskPts : slStructBull
+    posSL  := usdMode and not fitStr ? close - riskPts : (buySig ? slStructBull : slContBull)
     posTP1 := usdMode ? close + tgtPts : close + tp1R * (close - posSL)
     posTP2 := usdMode ? close + tgtPts : close + tp2R * (close - posSL)
     beDone := false
@@ -460,15 +521,17 @@ if buySig and strategy.position_size == 0
         zoneR := box.new(bar_index, posEntry, bar_index + 1, posSL, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
         zoneT1 := line.new(bar_index, posTP1, bar_index + 1, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
         label.new(bar_index, posSL, "LONG", style=label.style_label_up, color=color.new(color.green, 15), textcolor=color.white, size=size.tiny)
-    aTxtB = "SMC COMPRA " + syminfo.ticker + " (" + timeframe.period + "m)"
+    aTxtB = "SMC COMPRA" + (buySig ? "" : " CONT") + " " + syminfo.ticker + " (" + timeframe.period + "m)"
     aTxtB := aTxtB + " | Score " + str.tostring(scoreBull) + "/7"
     aTxtB := aTxtB + " | E " + f_fmt(close) + " SL " + f_fmt(posSL)
     aTxtB := aTxtB + " TP1 " + f_fmt(posTP1) + " TP2 " + f_fmt(posTP2)
     alert(aTxtB, alert.freq_once_per_bar_close)
 
-if sellSig and strategy.position_size == 0 and not buySig
+if entShort and strategy.position_size == 0 and not entLong
+    if sellContSig and not sellSig
+        bosBearFired := true
     posEntry := close
-    posSL  := usdMode and not fitStr ? close + riskPts : slStructBear
+    posSL  := usdMode and not fitStr ? close + riskPts : (sellSig ? slStructBear : slContBear)
     posTP1 := usdMode ? close - tgtPts : close - tp1R * (posSL - close)
     posTP2 := usdMode ? close - tgtPts : close - tp2R * (posSL - close)
     beDone := false
@@ -483,7 +546,7 @@ if sellSig and strategy.position_size == 0 and not buySig
         zoneR := box.new(bar_index, posSL, bar_index + 1, posEntry, border_color=color.new(color.red, 55), bgcolor=color.new(color.red, 82))
         zoneT1 := line.new(bar_index, posTP1, bar_index + 1, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
         label.new(bar_index, posSL, "SHORT", style=label.style_label_down, color=color.new(color.red, 15), textcolor=color.white, size=size.tiny)
-    aTxtS = "SMC VENTA " + syminfo.ticker + " (" + timeframe.period + "m)"
+    aTxtS = "SMC VENTA" + (sellSig ? "" : " CONT") + " " + syminfo.ticker + " (" + timeframe.period + "m)"
     aTxtS := aTxtS + " | Score " + str.tostring(scoreBear) + "/7"
     aTxtS := aTxtS + " | E " + f_fmt(close) + " SL " + f_fmt(posSL)
     aTxtS := aTxtS + " TP1 " + f_fmt(posTP1) + " TP2 " + f_fmt(posTP2)
@@ -562,6 +625,7 @@ if showTbl and barstate.islast
     smtCol = not useSMT ? cNe : corrOK ? cUp : cWa
     modoTxt = (reqMSS ? "MSS" : "-") + " + " + (reqFVG ? "FVG" : "directo")
     modoTxt := modoTxt + " | min " + str.tostring(minScore)
+    modoTxt := modoTxt + (useBOS ? " +BOS" : "")
     if usdMode
         modoTxt := modoTxt + " | USD -" + str.tostring(riskUSD, "#") + "/+" + str.tostring(tgtUSD, "#")
     table.cell(tbl, 0, 0, "SMC MASTER v2", text_color=color.white, text_size=size.small)
