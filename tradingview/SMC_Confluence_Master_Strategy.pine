@@ -432,8 +432,8 @@ sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirme
 
 // BOS de CONTINUACION (experimental): cierre que rompe el swing A FAVOR
 // del sesgo HTF con cuerpo fuerte; la entrada es el retest del FVG creado
-bosBull = useBOS and not na(lastPH) and close > lastPH and math.abs(close - open) >= dispMin * atr and htfBull
-bosBear = useBOS and not na(lastPL) and close < lastPL and math.abs(close - open) >= dispMin * atr and htfBear
+bosBull = useBOS and not na(lastPH) and close > lastPH and close[1] <= lastPH and math.abs(close - open) >= dispMin * atr and htfBull
+bosBear = useBOS and not na(lastPL) and close < lastPL and close[1] >= lastPL and math.abs(close - open) >= dispMin * atr and htfBear
 
 var int   bosBullBar = na
 var float bosBullLvl = na
@@ -455,8 +455,8 @@ if bosBear and barstate.isconfirmed
     bosBearLvl := lastPL
     bosBearFired := false
 
-contBullOK = not na(bosBullBar) and not bosBullFired and inBullFvg and not na(bullFvgBar) and bullFvgBar >= bosBullBar
-contBearOK = not na(bosBearBar) and not bosBearFired and inBearFvg and not na(bearFvgBar) and bearFvgBar >= bosBearBar
+contBullOK = not na(bosBullBar) and not bosBullFired and inBullFvg and not na(bullFvgBar) and bullFvgBar >= bosBullBar and close > bosBullLvl
+contBearOK = not na(bosBearBar) and not bosBearFired and inBearFvg and not na(bearFvgBar) and bearFvgBar >= bosBearBar and close < bosBearLvl
 buyContSig  = useBOS and contBullOK and sesionOK and barstate.isconfirmed
 sellContSig = useBOS and contBearOK and sesionOK and barstate.isconfirmed
 slContBull = bosBullLvl - slBuf * atr
