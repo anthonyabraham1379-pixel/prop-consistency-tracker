@@ -309,11 +309,20 @@ usePD   = input.bool(false, "Filtro Premium/Discount (shorts arriba, longs abajo
 pdLen   = input.int(120, "Velas del rango P/D", minval=20, group=grpQ)
 useDisp = input.bool(false, "Exigir desplazamiento fuerte en el MSS", group=grpQ)
 dispMin = input.float(0.6, "Cuerpo minimo de la vela MSS (x ATR)", step=0.1, group=grpQ)
-useBOS  = input.bool(false, "BOS: marcar oportunidades de CONTINUACION", group=grpQ)
-bosWin  = input.int(10, "Ventana tras el BOS (velas)", minval=3, group=grpQ)
-bosScoreMin = input.int(4, "Factores que deben confirmar el BOS (max 6)", minval=2, maxval=6, group=grpQ)
-bosBody = input.float(0.3, "Cuerpo minimo del BOS (x ATR)", step=0.1, group=grpQ)
-bosShow = input.bool(true, "Marcar la oportunidad BOS en el grafico", group=grpQ)
+// El BOS de continuacion es un MODULO INDEPENDIENTE: tiene su propio swing,
+// su propio cuerpo minimo, su forma de entrada, su stop y sus objetivos.
+// Nada aqui depende de la configuracion del sistema de reversion (barrido).
+grpBOS = "8d) BOS de continuacion (modulo independiente)"
+useBOS  = input.bool(false, "Activar BOS de continuacion", group=grpBOS)
+bosPivLen = input.int(5, "Swing del BOS (pivote propio)", minval=2, group=grpBOS)
+bosBody = input.float(0.3, "Cuerpo minimo del BOS (x ATR)", step=0.1, group=grpBOS)
+bosWin  = input.int(10, "Ventana tras el BOS (velas)", minval=3, group=grpBOS)
+bosReqFvg = input.bool(true, "Exigir retorno al FVG (si no: retest del nivel roto)", group=grpBOS)
+bosScoreMin = input.int(4, "Factores que deben confirmar el BOS (max 6)", minval=2, maxval=6, group=grpBOS)
+bosSlBuf = input.float(0.5, "Colchon del SL del BOS (x ATR)", step=0.1, group=grpBOS)
+bosTp1R = input.float(1.5, "TP1 del BOS (multiplo de R)", step=0.1, group=grpBOS)
+bosTp2R = input.float(2.5, "TP2 del BOS (multiplo de R)", step=0.1, group=grpBOS)
+bosShow = input.bool(true, "Marcar la oportunidad BOS en el grafico", group=grpBOS)
 
 var int   swBearBar = na
 var float swBearExt = na
@@ -437,10 +446,20 @@ sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirme
 // ultimo swing confirmado A FAVOR del sesgo HTF. Deteccion POR NIVEL: marca
 // una vez por swing (aunque el precio ya viniera cayendo/subiendo rapido, que
 // es cuando el pivote confirma tarde y el "primer cruce" ya paso).
+// Swing PROPIO del BOS (independiente del pivote del barrido)
+bosPh  = ta.pivothigh(high, bosPivLen, bosPivLen)
+bosPlv = ta.pivotlow(low, bosPivLen, bosPivLen)
+var float bosSwHigh = na
+var float bosSwLow = na
+if not na(bosPh)
+    bosSwHigh := bosPh
+if not na(bosPlv)
+    bosSwLow := bosPlv
+
 var float lastBosBullLvl = na
 var float lastBosBearLvl = na
-bosBull = useBOS and not na(lastPH) and close > lastPH and (na(lastBosBullLvl) or lastPH != lastBosBullLvl) and math.abs(close - open) >= bosBody * atr and htfBull
-bosBear = useBOS and not na(lastPL) and close < lastPL and (na(lastBosBearLvl) or lastPL != lastBosBearLvl) and math.abs(close - open) >= bosBody * atr and htfBear
+bosBull = useBOS and not na(bosSwHigh) and close > bosSwHigh and (na(lastBosBullLvl) or bosSwHigh != lastBosBullLvl) and math.abs(close - open) >= bosBody * atr and htfBull
+bosBear = useBOS and not na(bosSwLow) and close < bosSwLow and (na(lastBosBearLvl) or bosSwLow != lastBosBearLvl) and math.abs(close - open) >= bosBody * atr and htfBear
 
 var int   bosBullBar = na
 var float bosBullLvl = na
@@ -461,8 +480,8 @@ if not na(bosBearBar) and (bar_index - bosBearBar) > bosWin
 // para poder confirmar despues la oportunidad con factores.
 if bosBull and barstate.isconfirmed
     bosBullBar := bar_index
-    bosBullLvl := lastPH
-    lastBosBullLvl := lastPH
+    bosBullLvl := bosSwHigh
+    lastBosBullLvl := bosSwHigh
     bosBullVol := volOKn
     bosBullStrong := math.abs(close - open) >= atr
     bosBullFired := false
@@ -470,8 +489,8 @@ if bosBull and barstate.isconfirmed
         label.new(bar_index, low, "BOS?", style=label.style_label_up, color=color.new(color.blue, 40), textcolor=color.white, size=size.tiny)
 if bosBear and barstate.isconfirmed
     bosBearBar := bar_index
-    bosBearLvl := lastPL
-    lastBosBearLvl := lastPL
+    bosBearLvl := bosSwLow
+    lastBosBearLvl := bosSwLow
     bosBearVol := volOKn
     bosBearStrong := math.abs(close - open) >= atr
     bosBearFired := false
@@ -484,15 +503,18 @@ if bosBear and barstate.isconfirmed
 contScoreBull = 2 + (htfBull ? 1 : 0) + (vwBull ? 1 : 0) + (bosBullVol ? 1 : 0) + (bosBullStrong ? 1 : 0)
 contScoreBear = 2 + (htfBear ? 1 : 0) + (vwBear ? 1 : 0) + (bosBearVol ? 1 : 0) + (bosBearStrong ? 1 : 0)
 
-// Riesgo del BOS medido con SU stop (bajo/encima del nivel roto), no el del barrido
-riskContBull = not fitStr or (close - (bosBullLvl - slBuf * atr)) <= riskPts
-riskContBear = not fitStr or ((bosBearLvl + slBuf * atr) - close) <= riskPts
-contBullOK = not na(bosBullBar) and not bosBullFired and inBullFvg and not na(bullFvgBar) and bullFvgBar >= bosBullBar and close > bosBullLvl and contScoreBull >= bosScoreMin and riskContBull
-contBearOK = not na(bosBearBar) and not bosBearFired and inBearFvg and not na(bearFvgBar) and bearFvgBar >= bosBearBar and close < bosBearLvl and contScoreBear >= bosScoreMin and riskContBear
+// Riesgo del BOS medido con SU stop (bajo/encima del nivel roto), con SU colchon
+riskContBull = not fitStr or (close - (bosBullLvl - bosSlBuf * atr)) <= riskPts
+riskContBear = not fitStr or ((bosBearLvl + bosSlBuf * atr) - close) <= riskPts
+// Forma de entrada del BOS: retorno al FVG, o retest del propio nivel roto
+contBullRetest = bosReqFvg ? (inBullFvg and not na(bullFvgBar) and bullFvgBar >= bosBullBar and close > bosBullLvl) : (low <= bosBullLvl and close > bosBullLvl)
+contBearRetest = bosReqFvg ? (inBearFvg and not na(bearFvgBar) and bearFvgBar >= bosBearBar and close < bosBearLvl) : (high >= bosBearLvl and close < bosBearLvl)
+contBullOK = not na(bosBullBar) and not bosBullFired and contBullRetest and contScoreBull >= bosScoreMin and riskContBull
+contBearOK = not na(bosBearBar) and not bosBearFired and contBearRetest and contScoreBear >= bosScoreMin and riskContBear
 buyContSig  = useBOS and contBullOK and sesionOK and barstate.isconfirmed
 sellContSig = useBOS and contBearOK and sesionOK and barstate.isconfirmed
-slContBull = bosBullLvl - slBuf * atr
-slContBear = bosBearLvl + slBuf * atr
+slContBull = bosBullLvl - bosSlBuf * atr
+slContBear = bosBearLvl + bosSlBuf * atr
 entLong  = buySig or buyContSig
 entShort = sellSig or sellContSig
 
@@ -534,12 +556,15 @@ var float posTP2 = na
 var bool  beDone = false
 
 if entLong and strategy.position_size == 0
-    if buyContSig and not buySig
+    isContL = buyContSig and not buySig
+    if isContL
         bosBullFired := true
+    tp1L = isContL ? bosTp1R : tp1R
+    tp2L = isContL ? bosTp2R : tp2R
     posEntry := close
     posSL  := usdMode and not fitStr ? close - riskPts : (buySig ? slStructBull : slContBull)
-    posTP1 := usdMode ? close + tgtPts : close + tp1R * (close - posSL)
-    posTP2 := usdMode ? close + tgtPts : close + tp2R * (close - posSL)
+    posTP1 := usdMode ? close + tgtPts : close + tp1L * (close - posSL)
+    posTP2 := usdMode ? close + tgtPts : close + tp2L * (close - posSL)
     beDone := false
     strategy.entry("Long", strategy.long, qty=qtyCt)
     // salidas colocadas en la MISMA vela: el stop protege desde el primer tick
@@ -560,12 +585,15 @@ if entLong and strategy.position_size == 0
     alert(aTxtB, alert.freq_once_per_bar_close)
 
 if entShort and strategy.position_size == 0 and not entLong
-    if sellContSig and not sellSig
+    isContS = sellContSig and not sellSig
+    if isContS
         bosBearFired := true
+    tp1S = isContS ? bosTp1R : tp1R
+    tp2S = isContS ? bosTp2R : tp2R
     posEntry := close
     posSL  := usdMode and not fitStr ? close + riskPts : (sellSig ? slStructBear : slContBear)
-    posTP1 := usdMode ? close - tgtPts : close - tp1R * (posSL - close)
-    posTP2 := usdMode ? close - tgtPts : close - tp2R * (posSL - close)
+    posTP1 := usdMode ? close - tgtPts : close - tp1S * (posSL - close)
+    posTP2 := usdMode ? close - tgtPts : close - tp2S * (posSL - close)
     beDone := false
     strategy.entry("Short", strategy.short, qty=qtyCt)
     if usdMode
