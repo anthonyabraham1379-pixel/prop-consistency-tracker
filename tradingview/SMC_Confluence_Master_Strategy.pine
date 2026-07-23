@@ -318,6 +318,7 @@ bosPivLen = input.int(5, "Swing del BOS (pivote propio)", minval=2, group=grpBOS
 bosBody = input.float(0.3, "Cuerpo minimo del BOS (x ATR)", step=0.1, group=grpBOS)
 bosBodyRatio = input.float(0.4, "Ratio cuerpo/rango del BOS (anti-mecha, 0=off; 1m ~0.4)", minval=0, maxval=1, step=0.05, group=grpBOS)
 bosReqFollow = input.bool(false, "Exigir cierre fuerte en la vela del BOS (anti-agotamiento)", group=grpBOS)
+bosUseVW = input.bool(false, "Filtrar el BOS por VWAP (a favor del lado)", group=grpBOS)
 bosWin  = input.int(10, "Ventana tras el BOS (velas)", minval=3, group=grpBOS)
 bosReqFvg = input.bool(true, "Exigir retorno al FVG (si no: retest del nivel roto)", group=grpBOS)
 bosScoreMin = input.int(4, "Factores que deben confirmar el BOS (max 6)", minval=2, maxval=6, group=grpBOS)
@@ -468,8 +469,11 @@ bosFollowBear = not bosReqFollow or (high - close) >= 0.66 * bosRng
 
 var float lastBosBullLvl = na
 var float lastBosBearLvl = na
-bosBull = useBOS and not na(bosSwHigh) and close > bosSwHigh and (na(lastBosBullLvl) or bosSwHigh != lastBosBullLvl) and math.abs(close - open) >= bosBody * atr and bosBodyRatioOK and bosFollowBull and htfBull
-bosBear = useBOS and not na(bosSwLow) and close < bosSwLow and (na(lastBosBearLvl) or bosSwLow != lastBosBearLvl) and math.abs(close - open) >= bosBody * atr and bosBodyRatioOK and bosFollowBear and htfBear
+// Filtro VWAP propio del BOS (independiente): a favor del lado del VWAP
+bosVwBull = not bosUseVW or vwBull
+bosVwBear = not bosUseVW or vwBear
+bosBull = useBOS and not na(bosSwHigh) and close > bosSwHigh and (na(lastBosBullLvl) or bosSwHigh != lastBosBullLvl) and math.abs(close - open) >= bosBody * atr and bosBodyRatioOK and bosFollowBull and bosVwBull and htfBull
+bosBear = useBOS and not na(bosSwLow) and close < bosSwLow and (na(lastBosBearLvl) or bosSwLow != lastBosBearLvl) and math.abs(close - open) >= bosBody * atr and bosBodyRatioOK and bosFollowBear and bosVwBear and htfBear
 
 var int   bosBullBar = na
 var float bosBullLvl = na
