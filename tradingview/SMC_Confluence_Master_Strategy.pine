@@ -312,6 +312,7 @@ dispMin = input.float(0.6, "Cuerpo minimo de la vela MSS (x ATR)", step=0.1, gro
 useBOS  = input.bool(false, "BOS: marcar oportunidades de CONTINUACION", group=grpQ)
 bosWin  = input.int(10, "Ventana tras el BOS (velas)", minval=3, group=grpQ)
 bosScoreMin = input.int(4, "Factores que deben confirmar el BOS (max 6)", minval=2, maxval=6, group=grpQ)
+bosBody = input.float(0.3, "Cuerpo minimo del BOS (x ATR)", step=0.1, group=grpQ)
 bosShow = input.bool(true, "Marcar la oportunidad BOS en el grafico", group=grpQ)
 
 var int   swBearBar = na
@@ -432,10 +433,14 @@ gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear and pdShortOK
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
 
-// BOS de CONTINUACION (experimental): cierre que rompe el swing A FAVOR
-// del sesgo HTF con cuerpo fuerte; la entrada es el retest del FVG creado
-bosBull = useBOS and not na(lastPH) and close > lastPH and close[1] <= lastPH and math.abs(close - open) >= dispMin * atr and htfBull
-bosBear = useBOS and not na(lastPL) and close < lastPL and close[1] >= lastPL and math.abs(close - open) >= dispMin * atr and htfBear
+// BOS de CONTINUACION (experimental): una vela con cuerpo cierra mas alla del
+// ultimo swing confirmado A FAVOR del sesgo HTF. Deteccion POR NIVEL: marca
+// una vez por swing (aunque el precio ya viniera cayendo/subiendo rapido, que
+// es cuando el pivote confirma tarde y el "primer cruce" ya paso).
+var float lastBosBullLvl = na
+var float lastBosBearLvl = na
+bosBull = useBOS and not na(lastPH) and close > lastPH and (na(lastBosBullLvl) or lastPH != lastBosBullLvl) and math.abs(close - open) >= bosBody * atr and htfBull
+bosBear = useBOS and not na(lastPL) and close < lastPL and (na(lastBosBearLvl) or lastPL != lastBosBearLvl) and math.abs(close - open) >= bosBody * atr and htfBear
 
 var int   bosBullBar = na
 var float bosBullLvl = na
@@ -457,6 +462,7 @@ if not na(bosBearBar) and (bar_index - bosBearBar) > bosWin
 if bosBull and barstate.isconfirmed
     bosBullBar := bar_index
     bosBullLvl := lastPH
+    lastBosBullLvl := lastPH
     bosBullVol := volOKn
     bosBullStrong := math.abs(close - open) >= atr
     bosBullFired := false
@@ -465,6 +471,7 @@ if bosBull and barstate.isconfirmed
 if bosBear and barstate.isconfirmed
     bosBearBar := bar_index
     bosBearLvl := lastPL
+    lastBosBearLvl := lastPL
     bosBearVol := volOKn
     bosBearStrong := math.abs(close - open) >= atr
     bosBearFired := false
