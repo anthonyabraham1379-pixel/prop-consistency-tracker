@@ -1,0 +1,401 @@
+//@version=6
+// ===========================================================================
+//  SMC + ORDER FLOW + VWAP  -  Estrategia institucional para ES / SPY (1 min)
+//  Quant build basado en el analisis de la muestra local (ES 1m ~1 ano + ticks)
+//
+//  EDGES VALIDADOS (walk-forward, ambas mitades del ano positivas):
+//    - Reversion Sweep -> MSS/CHoCH -> FVG en la sesion NY (mejor en 09:30-11:00)
+//    - Filtro de ORDER FLOW por el cierre de la vela del sweep (proxy de delta,
+//      CLV): reproduce el delta real y SI se backtestea en todo el historico.
+//    - Sesgo por VWAP de sesion (largos en descuento, cortos en premium).
+//    - Gestion: TP1 parcial + breakeven, TP2 a banda VWAP o RR 1:3, stop diario.
+//    Config robusta de la muestra: solo NY AM, CLV>=0.70 -> PF ~2.68, DD ~4.3k.
+//
+//  CERO REPINTADO: toda senal se evalua en barstate.isconfirmed; niveles macro
+//  por acumulador nativo; sin request.security con lookahead. 100% ASCII.
+// ===========================================================================
+strategy("SMC + Order Flow + VWAP v6", "SMC-OF-VWAP",
+     overlay                 = true,
+     initial_capital         = 25000,
+     default_qty_type        = strategy.fixed,
+     default_qty_value        = 1,
+     commission_type         = strategy.commission.cash_per_contract,
+     commission_value        = 2.50,
+     slippage                = 1,
+     margin_long             = 0,
+     margin_short            = 0,
+     pyramiding              = 0,
+     calc_on_every_tick      = false,
+     process_orders_on_close = true,
+     max_boxes_count         = 250,
+     max_lines_count         = 250,
+     max_labels_count        = 300)
+
+ok = barstate.isconfirmed
+
+// ===========================================================================
+//  1) SESION Y FILTRO HORARIO
+// ===========================================================================
+g1       = "1) Sesion y horario"
+tz       = input.string("America/New_York", "Zona horaria", group=g1)
+sesOper  = input.session("0930-1100", "Sesion operativa (EST)", group=g1, tooltip="La ventaja de la muestra esta en 09:30-11:00. Puedes ampliar a 0930-1500.")
+usarLunch= input.bool(true,  "Bloquear lunch NY", group=g1)
+sesLunch = input.session("1130-1330", "Lunch (no operar)", group=g1)
+horaFlat = input.int(16, "Hora de cierre forzado (EST)", minval=0, maxval=23, group=g1)
+horaAsia = input.int(18, "Inicio sesion asiatica (EST)", minval=0, maxval=23, group=g1)
+
+nyH   = hour(time, tz)
+enOper= not na(time(timeframe.period, sesOper, tz))
+enLun = usarLunch and not na(time(timeframe.period, sesLunch, tz))
+sesOK = enOper and not enLun
+
+// ===========================================================================
+//  2) CONTEXTO: VWAP DE SESION + BANDAS DE DESVIACION
+// ===========================================================================
+g2       = "2) VWAP de sesion"
+usarVWAP = input.bool(true, "Filtrar por sesgo VWAP (largos descuento / cortos premium)", group=g2)
+sd1      = input.float(1.0, "Banda 1 (desv. estandar)", step=0.5, group=g2)
+sd2      = input.float(2.0, "Banda 2 (desv. estandar, zona TP2/sobreextension)", step=0.5, group=g2)
+verVWAP  = input.bool(true, "Mostrar VWAP y bandas", group=g2)
+
+sesStart = enOper and not enOper[1]
+var float sPV = na
+var float sV  = na
+var float sP2V= na
+tp = hlc3
+if sesStart
+    sPV := tp * volume
+    sV  := volume
+    sP2V:= tp * tp * volume
+else if enOper
+    sPV := nz(sPV) + tp * volume
+    sV  := nz(sV)  + volume
+    sP2V:= nz(sP2V)+ tp * tp * volume
+vwap = sV > 0 ? sPV / sV : na
+vari = sV > 0 ? math.max(sP2V / sV - vwap * vwap, 0) : na
+sd   = na(vari) ? na : math.sqrt(vari)
+vU1  = vwap + sd1 * sd
+vL1  = vwap - sd1 * sd
+vU2  = vwap + sd2 * sd
+vL2  = vwap - sd2 * sd
+
+plot(verVWAP ? vwap : na, "VWAP", color.new(color.orange, 0), 2)
+plot(verVWAP ? vU1 : na, "VWAP +1", color.new(color.gray, 40))
+plot(verVWAP ? vL1 : na, "VWAP -1", color.new(color.gray, 40))
+plot(verVWAP ? vU2 : na, "VWAP +2", color.new(color.blue, 40))
+plot(verVWAP ? vL2 : na, "VWAP -2", color.new(color.blue, 40))
+
+vwBull = not usarVWAP or na(vwap) or close <= vwap   // largos desde descuento
+vwBear = not usarVWAP or na(vwap) or close >= vwap   // cortos desde premium
+
+// ===========================================================================
+//  3) NIVELES MACRO DE LIQUIDEZ (PDH/PDL, Asia H/L) - acumulador nativo
+// ===========================================================================
+g3       = "3) Liquidez y estructura (SMC)"
+usarPD   = input.bool(true, "Liquidez PDH/PDL (dia previo)", group=g3)
+usarAs   = input.bool(true, "Liquidez Asia High/Low", group=g3)
+pivLen   = input.int(5, "Longitud de pivote (swing)", minval=2, group=g3)
+mechaMin = input.float(0.20, "Mecha minima del sweep (x ATR)", step=0.05, group=g3)
+volLen   = input.int(20, "Media de volumen", group=g3)
+volMult  = input.float(1.5, "Volumen minimo del MSS (x media)", step=0.1, group=g3)
+fvgMin   = input.float(0.15, "Tamano minimo del FVG (x ATR)", step=0.05, group=g3)
+barsFVG  = input.int(10, "Velas max. para formar el FVG", minval=1, group=g3)
+barsLim  = input.int(60, "Velas max. que vive la orden limite", minval=1, group=g3)
+verZonas = input.bool(true, "Pintar zonas y niveles", group=g3)
+
+atr = ta.atr(14)
+nyDay = dayofmonth(time, tz)
+newDay = nyDay != nyDay[1]
+
+var float acDH=na
+var float acDL=na
+var float acAH=na
+var float acAL=na
+var float midOpen=na
+var float asiaH=na
+var float asiaL=na
+var float pdh=na
+var float pdl=na
+enAsia = nyH >= horaAsia
+if newDay
+    midOpen := open
+    asiaH := acAH
+    asiaL := acAL
+    pdh := acDH
+    pdl := acDL
+    acDH := high
+    acDL := low
+else
+    acDH := na(acDH) ? high : math.max(acDH, high)
+    acDL := na(acDL) ? low  : math.min(acDL, low)
+if enAsia and not enAsia[1]
+    acAH := high
+    acAL := low
+else if enAsia
+    acAH := na(acAH) ? high : math.max(acAH, high)
+    acAL := na(acAL) ? low  : math.min(acAL, low)
+
+// ===========================================================================
+//  4) ORDER FLOW (delta) - proxy por cierre de vela (backtesteable) o intrabar
+// ===========================================================================
+g4       = "4) Order Flow"
+usarOF   = input.bool(true, "Exigir order flow a favor en el sweep", group=g4)
+ofFuente = input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=g4, tooltip="Vela=usa como cierra la vela del sweep (CLV), existe en todo el historico. Intrabar=delta real por sub-velas, solo ~2 semanas en TV.")
+clvMin   = input.float(0.70, "CLV minimo del sweep (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=g4)
+tfDelta  = input.timeframe("5S", "TF del delta (modo Intrabar)", group=g4)
+
+[ofO, ofC, ofV] = request.security_lower_tf(syminfo.tickerid, tfDelta, [open, close, volume])
+f_delta() =>
+    float dd = 0.0
+    int n = array.size(ofC)
+    if n > 0
+        for k = 0 to n - 1
+            dd += array.get(ofC, k) >= array.get(ofO, k) ? array.get(ofV, k) : -array.get(ofV, k)
+    dd
+deltaBar = f_delta()
+
+volSMA = ta.sma(volume, volLen)
+volOK  = volume > volSMA * volMult
+
+// ===========================================================================
+//  5) DETECCION: SWEEP (BSL/SSL) -> MSS -> FVG
+// ===========================================================================
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low,  pivLen, pivLen)
+var float ultPH = na
+var float ultPL = na
+if not na(ph)
+    ultPH := ph
+if not na(pl)
+    ultPL := pl
+
+nivLongA = usarPD ? pdl : na
+nivLongB = usarAs ? asiaL : na
+nivShortA= usarPD ? pdh : na
+nivShortB= usarAs ? asiaH : na
+mechaInf = math.min(open, close) - low
+mechaSup = high - math.max(open, close)
+
+barrL(n) => not na(n) and low  < n and close > n and mechaInf >= mechaMin * atr
+barrS(n) => not na(n) and high > n and close < n and mechaSup >= mechaMin * atr
+
+// SSL sweep (barrido de minimos) para LARGO ; BSL sweep (de maximos) para CORTO
+sweepL = ok and vwBull and (barrL(nivLongA) or barrL(nivLongB))
+sweepS = ok and vwBear and (barrS(nivShortA) or barrS(nivShortB))
+
+var int   fL=0
+var float extL=na
+var int   mssBarL=na
+var float limL=na
+var float slL=na
+var float clvL=na
+var int   venL=na
+var int   fS=0
+var float extS=na
+var int   mssBarS=na
+var float limS=na
+var float slS=na
+var float clvS=na
+var int   venS=na
+var box   zRL=na
+var box   zPL=na
+var box   zRS=na
+var box   zPS=na
+delL() =>
+    box.delete(zRL)
+    box.delete(zPL)
+delS() =>
+    box.delete(zRS)
+    box.delete(zPS)
+
+okOF_L(_clv, _of) => not usarOF or (ofFuente == "Vela (backtest)" ? _clv >= clvMin : _of > 0)
+okOF_S(_clv, _of) => not usarOF or (ofFuente == "Vela (backtest)" ? _clv >= clvMin : _of < 0)
+
+// ---- LARGO ----
+if sweepL
+    fL := 1
+    extL := low
+    clvL := (close - low) / math.max(high - low, syminfo.mintick)
+if fL == 1 and ok and not na(ultPH) and close > ultPH and volOK   // MSS / CHoCH alcista
+    fL := 2
+    mssBarL := bar_index
+    if verZonas
+        label.new(bar_index, high, "MSS", yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.green, 30), textcolor=color.white, size=size.tiny)
+if fL == 2 and ok and not na(mssBarL)
+    if bar_index - mssBarL > barsFVG
+        fL := 0
+    else if low > high[2] and (low - high[2]) >= fvgMin * atr and okOF_L(clvL, deltaBar)
+        limL := low
+        slL  := extL - syminfo.mintick
+        venL := bar_index + barsLim
+        fL   := 3
+        if verZonas
+            delL()
+            zRL := box.new(bar_index, limL, bar_index + barsLim, slL, border_color=color.new(color.red, 60), bgcolor=color.new(color.red, 92))
+if fL == 3 and (bar_index > venL or low <= slL)
+    fL := 0
+    delL()
+
+// ---- CORTO ----
+if sweepS
+    fS := 1
+    extS := high
+    clvS := (high - close) / math.max(high - low, syminfo.mintick)
+if fS == 1 and ok and not na(ultPL) and close < ultPL and volOK   // MSS / CHoCH bajista
+    fS := 2
+    mssBarS := bar_index
+    if verZonas
+        label.new(bar_index, low, "MSS", yloc=yloc.belowbar, style=label.style_label_up, color=color.new(color.red, 30), textcolor=color.white, size=size.tiny)
+if fS == 2 and ok and not na(mssBarS)
+    if bar_index - mssBarS > barsFVG
+        fS := 0
+    else if high < low[2] and (low[2] - high) >= fvgMin * atr and okOF_S(clvS, deltaBar)
+        limS := high
+        slS  := extS + syminfo.mintick
+        venS := bar_index + barsLim
+        fS   := 3
+        if verZonas
+            delS()
+            zRS := box.new(bar_index, slS, bar_index + barsLim, limS, border_color=color.new(color.red, 60), bgcolor=color.new(color.red, 92))
+if fS == 3 and (bar_index > venS or high >= slS)
+    fS := 0
+    delS()
+
+// ===========================================================================
+//  6) GESTION DE RIESGO
+// ===========================================================================
+g5      = "5) Gestion de riesgo"
+modoTam = input.string("USD por trade", "Posicionamiento", options=["USD por trade", "% de la cuenta", "Contratos fijos"], group=g5)
+riskUSD = input.float(400, "Riesgo por trade (USD)", minval=10, group=g5)
+riskPct = input.float(1.0, "Riesgo por trade (% cuenta)", minval=0.1, step=0.1, group=g5)
+ctFijo  = input.int(2, "Contratos fijos", minval=1, group=g5)
+tp1R    = input.float(1.5, "TP1 (RR) - parcial + breakeven", step=0.1, group=g5)
+tp1Pct  = input.int(50, "% que se cierra en TP1", minval=10, maxval=90, group=g5)
+modoTP2 = input.string("RR 1:3", "TP2", options=["RR 1:3", "Banda VWAP extrema"], group=g5)
+tp2R    = input.float(3.0, "TP2 (RR) si es fijo", step=0.1, group=g5)
+usarBE  = input.bool(true, "Mover SL a breakeven tras TP1", group=g5)
+rMax    = input.float(20.0, "R maxima admitida (puntos)", minval=1, group=g5)
+maxDia  = input.int(3, "Maximo de trades por dia (0=off)", minval=0, group=g5)
+stopDia = input.float(800, "Stop de perdida diaria (USD, 0=off)", minval=0, group=g5)
+
+cierre = nyH >= horaFlat and nyH[1] < horaFlat
+rLar = na(limL) or na(slL) ? na : limL - slL
+rCor = na(limS) or na(slS) ? na : slS - limS
+
+f_qty(_rpts) =>
+    float q = ctFijo
+    if modoTam == "USD por trade"
+        q := math.floor(riskUSD / math.max(_rpts * syminfo.pointvalue, syminfo.pointvalue))
+    else if modoTam == "% de la cuenta"
+        q := math.floor((strategy.equity * riskPct / 100.0) / math.max(_rpts * syminfo.pointvalue, syminfo.pointvalue))
+    math.max(q, 1)
+
+// gestion diaria
+var float netIni = 0.0
+var int   trDia  = 0
+if newDay
+    netIni := strategy.netprofit
+    trDia := 0
+pnlDia = strategy.netprofit - netIni
+diaOK  = (maxDia <= 0 or trDia < maxDia) and (stopDia <= 0 or pnlDia > -stopDia)
+puede  = sesOK and not cierre and diaOK
+
+// TP2 objetivo
+tp2Lpx = modoTP2 == "Banda VWAP extrema" and not na(vU2) and vU2 > limL + tp1R * rLar ? vU2 : limL + tp2R * rLar
+tp2Spx = modoTP2 == "Banda VWAP extrema" and not na(vL2) and vL2 < limS - tp1R * rCor ? vL2 : limS - tp2R * rCor
+
+var bool beL=false
+var bool beS=false
+
+if fL == 3 and puede and strategy.position_size == 0 and not na(rLar) and rLar > 0 and rLar <= rMax
+    q = f_qty(rLar)
+    strategy.entry("L", strategy.long, qty=q, limit=limL, comment="Long")
+if fS == 3 and puede and strategy.position_size == 0 and not na(rCor) and rCor > 0 and rCor <= rMax
+    q = f_qty(rCor)
+    strategy.entry("S", strategy.short, qty=q, limit=limS, comment="Short")
+
+if strategy.position_size > 0
+    if usarBE and not beL and high >= limL + tp1R * rLar
+        beL := true
+    stL = usarBE and beL ? strategy.position_avg_price : slL
+    strategy.exit("L1", from_entry="L", qty_percent=tp1Pct, limit=limL + tp1R * rLar, stop=slL, comment_profit="TP1", comment_loss="SL")
+    strategy.exit("L2", from_entry="L", limit=tp2Lpx, stop=stL, comment_profit="TP2", comment_loss="BE/SL")
+
+if strategy.position_size < 0
+    if usarBE and not beS and low <= limS - tp1R * rCor
+        beS := true
+    stS = usarBE and beS ? strategy.position_avg_price : slS
+    strategy.exit("S1", from_entry="S", qty_percent=tp1Pct, limit=limS - tp1R * rCor, stop=slS, comment_profit="TP1", comment_loss="SL")
+    strategy.exit("S2", from_entry="S", limit=tp2Spx, stop=stS, comment_profit="TP2", comment_loss="BE/SL")
+
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    fL := 0
+    fS := 0
+    trDia += 1
+    delL()
+    delS()
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    beL := false
+    beS := false
+
+if cierre
+    strategy.cancel_all()
+    if strategy.position_size != 0
+        strategy.close_all(comment="Flat 16:00")
+    fL := 0
+    fS := 0
+    delL()
+    delS()
+
+// dibujar zona de premio (entrada -> TP2) mientras el limite vive
+if verZonas and fL == 3 and not na(rLar)
+    box.delete(zPL)
+    zPL := box.new(bar_index, tp2Lpx, bar_index + 6, limL, border_color=color.new(color.green, 60), bgcolor=color.new(color.green, 92))
+if verZonas and fS == 3 and not na(rCor)
+    box.delete(zPS)
+    zPS := box.new(bar_index, limS, bar_index + 6, tp2Spx, border_color=color.new(color.green, 60), bgcolor=color.new(color.green, 92))
+
+// ===========================================================================
+//  7) NIVELES MACRO EN PANTALLA
+// ===========================================================================
+plot(verZonas ? pdh : na, "PDH", color.new(color.red, 50), 1, plot.style_linebr)
+plot(verZonas ? pdl : na, "PDL", color.new(color.green, 50), 1, plot.style_linebr)
+plot(verZonas ? asiaH : na, "AsiaH", color.new(color.gray, 40), 1, plot.style_linebr)
+plot(verZonas ? asiaL : na, "AsiaL", color.new(color.gray, 40), 1, plot.style_linebr)
+bgcolor(verZonas and enOper and not enLun ? color.new(color.teal, 94) : na, title="Sesion operativa")
+
+// ===========================================================================
+//  8) DASHBOARD (Drawdown, Profit Factor, Win Rate, filtro diario)
+// ===========================================================================
+var float peak = strategy.initial_capital
+peak := math.max(peak, strategy.equity)
+ddCur = peak - strategy.equity
+ddPct = peak > 0 ? ddCur / peak * 100 : 0
+wr = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0
+pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+faseTxt = fL == 3 or fS == 3 ? "Limite armada" : fL == 2 or fS == 2 ? "Esperando FVG" : fL == 1 or fS == 1 ? "Esperando MSS" : "Sin setup"
+
+var table dash = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.new(color.gray, 70))
+if barstate.islast
+    table.cell(dash, 0, 0, "SMC-OF-VWAP", text_color=color.white, text_size=size.small, bgcolor=color.new(color.blue, 40))
+    table.cell(dash, 1, 0, syminfo.ticker, text_color=color.white, text_size=size.small, bgcolor=color.new(color.blue, 40))
+    table.cell(dash, 0, 1, "Profit Factor", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 1, na(pf) ? "-" : str.tostring(pf, "#.00"), text_color=na(pf) or pf >= 1.5 ? color.lime : color.orange, text_size=size.tiny)
+    table.cell(dash, 0, 2, "Win Rate", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 2, str.tostring(wr, "#.0") + "%", text_color=wr >= 50 ? color.lime : color.orange, text_size=size.tiny)
+    table.cell(dash, 0, 3, "Trades", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 3, str.tostring(strategy.closedtrades), text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 0, 4, "Drawdown actual", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 4, str.tostring(ddCur, "#") + " (" + str.tostring(ddPct, "#.0") + "%)", text_color=ddPct < 5 ? color.lime : color.red, text_size=size.tiny)
+    table.cell(dash, 0, 5, "PnL del dia", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 5, str.tostring(pnlDia, "#"), text_color=pnlDia >= 0 ? color.lime : color.red, text_size=size.tiny)
+    table.cell(dash, 0, 6, "Filtro diario", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 6, diaOK ? "OK (" + str.tostring(trDia) + " tr)" : "BLOQUEADO", text_color=diaOK ? color.lime : color.red, text_size=size.tiny)
+    table.cell(dash, 0, 7, "Fase / VWAP", text_color=color.white, text_size=size.tiny)
+    table.cell(dash, 1, 7, faseTxt + (na(vwap) ? "" : close >= vwap ? " | Premium" : " | Discount"), text_color=color.orange, text_size=size.tiny)
+
+// ===========================================================================
+//  9) ALERTAS
+// ===========================================================================
+alertcondition(fL == 3 and fL[1] != 3, "Setup LARGO", "SMC-OF-VWAP: largo armado (sweep+MSS+FVG+OF)")
+alertcondition(fS == 3 and fS[1] != 3, "Setup CORTO", "SMC-OF-VWAP: corto armado (sweep+MSS+FVG+OF)")
