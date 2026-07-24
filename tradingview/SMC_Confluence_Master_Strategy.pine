@@ -209,10 +209,12 @@ volOKp  = nz(volume[1]) >= volSma[1] * volMult
 // ~1.0 a ~1.65 y bajo el drawdown. Es el filtro de calidad, no de frecuencia:
 // deja el score como esta (muchos trades) y descarta los de flujo en contra.
 // El delta se aproxima con sub-velas del TF menor (alcista=compra, bajista=venta).
-grpOF   = "5C) Order Flow (delta del sweep)"
-useOF   = input.bool(true,  "Exigir order flow a favor en el sweep", group=grpOF, tooltip="Largo: delta comprador. Corto: delta vendedor. Es el mejor filtro de calidad en los datos reales.")
-tfDelta = input.timeframe("5S", "Timeframe del delta (menor al grafico)", group=grpOF)
-umbralOF= input.float(0.0, "Umbral minimo de delta a favor", minval=0, group=grpOF)
+grpOF   = "5C) Order Flow (del sweep)"
+useOF   = input.bool(true,  "Exigir order flow a favor en el sweep", group=grpOF, tooltip="Largo: presion compradora. Corto: presion vendedora. Es el mejor filtro de calidad en los datos reales (PF ~1.0 -> ~2.7).")
+ofFuente= input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=grpOF, tooltip="Vela: usa como cierra la vela del sweep (CLV), existe en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
+clvMin  = input.float(0.70, "CLV minimo del sweep (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=grpOF)
+tfDelta = input.timeframe("5S", "Timeframe del delta (modo Intrabar)", group=grpOF)
+umbralOF= input.float(0.0, "Umbral de delta a favor (modo Intrabar)", minval=0, group=grpOF)
 scoreOF = input.bool(false, "Sumar order flow al score (en vez de exigirlo)", group=grpOF, tooltip="Si lo activas, el order flow es un punto mas de confluencia (score sobre 8) en lugar de un requisito.")
 [ofO, ofC, ofV] = request.security_lower_tf(syminfo.tickerid, tfDelta, [open, close, volume])
 f_delta() =>
@@ -353,6 +355,7 @@ var int   swBearBar = na
 var float swBearExt = na
 var float swBearMssLvl = na
 var float swBearOF = na
+var float swBearCLV = na
 var bool  swBearVol = false
 var bool  swBearSMT = false
 var bool  swBearEQ  = false
@@ -364,6 +367,7 @@ var int   swBullBar = na
 var float swBullExt = na
 var float swBullMssLvl = na
 var float swBullOF = na
+var float swBullCLV = na
 var bool  swBullVol = false
 var bool  swBullSMT = false
 var bool  swBullEQ  = false
@@ -392,6 +396,7 @@ if sweepBear
     swBearDisp := false
     swBearMssLvl := na(minorPL) ? low : minorPL
     swBearOF := deltaBar
+    swBearCLV := (high - close) / math.max(high - low, syminfo.mintick)
     bearFired := false
     lastBearSweepBar := bar_index
 if sweepBull
@@ -404,6 +409,7 @@ if sweepBull
     swBullDisp := false
     swBullMssLvl := na(minorPH) ? high : minorPH
     swBullOF := deltaBar
+    swBullCLV := (close - low) / math.max(high - low, syminfo.mintick)
     bullFired := false
     lastBullSweepBar := bar_index
 
@@ -426,8 +432,8 @@ if mssBearHit
 
 // Si un filtro esta apagado no penaliza el score. EQH/EQL es bonus.
 // Order flow: confirma si el delta del sweep va a favor del lado.
-ofBullYes = not na(swBullOF) and swBullOF >= umbralOF
-ofBearYes = not na(swBearOF) and swBearOF <= -umbralOF
+ofBullYes = ofFuente == "Vela (backtest)" ? (not na(swBullCLV) and swBullCLV >= clvMin) : (not na(swBullOF) and swBullOF >= umbralOF)
+ofBearYes = ofFuente == "Vela (backtest)" ? (not na(swBearCLV) and swBearCLV >= clvMin) : (not na(swBearOF) and swBearOF <= -umbralOF)
 sHtfB = not useHTF or htfBull ? 1 : 0
 sVwB  = not useVW or vwBull ? 1 : 0
 sVolB = not useVol or swBullVol ? 1 : 0
@@ -473,8 +479,23 @@ pdShortOK = not usePD or close > pdEq
 dispBullOK = not useDisp or swBullDisp
 dispBearOK = not useDisp or swBearDisp
 
-gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull and pdLongOK and dispBullOK and ofBullOK
-gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear and pdShortOK and dispBearOK and ofBearOK
+// --- Limite diario (baja el drawdown; en la data ~-800/dia lo bajo a la mitad) ---
+grpDia   = "8D) Limite diario"
+stopDia  = input.float(800, "Stop de perdida diaria (USD, 0=off)", minval=0, group=grpDia)
+maxTrDia = input.int(3, "Maximo de trades por dia (0=off)", minval=0, group=grpDia)
+var float netIniDia = 0.0
+var int   trDia = 0
+newDayNY = dayofmonth(time, "America/New_York") != dayofmonth(time, "America/New_York")[1]
+if newDayNY
+    netIniDia := strategy.netprofit
+    trDia := 0
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    trDia := trDia + 1
+pnlDia = strategy.netprofit - netIniDia
+diaOK  = (maxTrDia <= 0 or trDia < maxTrDia) and (stopDia <= 0 or pnlDia > -stopDia)
+
+gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull and pdLongOK and dispBullOK and ofBullOK and diaOK
+gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear and pdShortOK and dispBearOK and ofBearOK and diaOK
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
 
@@ -558,8 +579,8 @@ contBullRetest = bosReqFvg ? (inBullFvg and not na(bullFvgBar) and bullFvgBar >=
 contBearRetest = bosReqFvg ? (inBearFvg and not na(bearFvgBar) and bearFvgBar >= bosBearBar and close < bosBearLvl) : (high >= bosBearLvl and close < bosBearLvl)
 contBullOK = not na(bosBullBar) and not bosBullFired and contBullRetest and contScoreBull >= bosScoreMin and riskContBull
 contBearOK = not na(bosBearBar) and not bosBearFired and contBearRetest and contScoreBear >= bosScoreMin and riskContBear
-buyContSig  = useBOS and contBullOK and sesionOK and barstate.isconfirmed
-sellContSig = useBOS and contBearOK and sesionOK and barstate.isconfirmed
+buyContSig  = useBOS and contBullOK and sesionOK and diaOK and barstate.isconfirmed
+sellContSig = useBOS and contBearOK and sesionOK and diaOK and barstate.isconfirmed
 slContBull = bosBullLvl - bosSlBuf * atr
 slContBear = bosBearLvl + bosSlBuf * atr
 entLong  = buySig or buyContSig
