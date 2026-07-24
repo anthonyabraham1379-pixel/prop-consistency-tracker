@@ -14,11 +14,15 @@
 //  Los niveles macro se construyen con acumuladores nativos por marca de tiempo.
 //  El SMT usa request.security con lookahead_off (sin fuga de datos futuros).
 //
-//  CONFIG VALIDADA (backtest 1 ano data real Databento, rango fijo):
-//    La mejor combinacion fue NQ, solo killzone NY AM, breakeven APAGADO,
-//    CRT on, volumen 1.5x, TP fijo 1.5R/2.0R.  -> defaults de este archivo.
-//    SMT y TP por estructura se validaron y NO mejoraron; quedan como
-//    opciones apagadas por si el usuario quiere experimentar.
+//  CONFIG VALIDADA PARA ES / S&P500 (backtest 1 ano data real Databento,
+//  rango fijo, y verificada con walk-forward en las 2 mitades del ano):
+//    ES, solo killzone NY AM, volumen 2.0x, TP 2.0R/3.0R, rMax 20, rMin 5,
+//    breakeven APAGADO, CRT on.  -> defaults de este archivo.
+//    Resultado: PF 1.70 (ano), positivo en ambas mitades (1.43 y 2.01),
+//    39 trades, max drawdown ~4,615 USD con 2 contratos.
+//    Nota: 39 trades es muestra pequena; forward-testear en demo antes de
+//    fondeo.  SMT y TP por estructura se validaron y NO mejoraron; quedan
+//    como opciones apagadas por si quieres experimentar.
 //
 //  CAMBIOS v3:  1) Killzones AM/PM activables por separado (default: AM).
 //               2) Breakeven apagado por default (mejoro el PnL en la data).
@@ -65,7 +69,7 @@ g3 = "MODULO 3 - Setup de entrada"
 pivLen    = input.int(5,    "Longitud de pivote para MSS", minval=2, group=g3)
 mechaMin  = input.float(0.20, "Mecha minima del sweep (x ATR)", minval=0, step=0.05, group=g3)
 volLen    = input.int(20,   "Periodo SMA de volumen", minval=1, group=g3)
-volMult   = input.float(1.5, "Volumen minimo del MSS (x SMA)", minval=1.0, step=0.1, group=g3)
+volMult   = input.float(2.0, "Volumen minimo del MSS (x SMA)", minval=1.0, step=0.1, group=g3)
 fvgMin    = input.float(0.15, "Tamano minimo del FVG (x ATR)", minval=0, step=0.05, group=g3)
 barrasFVG = input.int(10,   "Velas max. para formar el FVG tras el MSS", minval=1, group=g3)
 barrasLim = input.int(60,   "Velas max. que vive la orden limite", minval=1, group=g3)
@@ -80,12 +84,12 @@ smtLen    = input.int(10, "Velas de referencia del pivote SMT", minval=2, group=
 g4 = "MODULO 4 - Gestion de riesgo"
 contratos = input.int(2,    "Contratos por operacion (par para TP escalonado)", minval=2, group=g4)
 modoTP    = input.string("Fijo (R)", "Modo de Take Profit 2", options=["Fijo (R)", "Estructura (liquidez opuesta)"], group=g4, tooltip="Fijo (R) fue el mejor en backtest. Estructura apunta a PDH/PDL/Asia opuesto.")
-tp1R      = input.float(1.5, "TP1 (multiplo de R) - cierra 50%", minval=0.1, step=0.1, group=g4)
-tp2R      = input.float(2.0, "TP2 (multiplo de R) - cierra el resto", minval=0.1, step=0.1, group=g4)
+tp1R      = input.float(2.0, "TP1 (multiplo de R) - cierra 50%", minval=0.1, step=0.1, group=g4)
+tp2R      = input.float(3.0, "TP2 (multiplo de R) - cierra el resto", minval=0.1, step=0.1, group=g4)
 usarBE    = input.bool(false, "Mover SL a breakeven tras TP1", group=g4)
 horaCierre= input.int(16,   "Hora de cierre forzado (EST)", minval=0, maxval=23, group=g4)
-rMax      = input.float(30.0, "R maxima admitida (puntos)", minval=1, group=g4)
-rMin      = input.float(0.0,  "R minima admitida (puntos, 0 = sin filtro)", minval=0, group=g4)
+rMax      = input.float(20.0, "R maxima admitida (puntos)", minval=1, group=g4)
+rMin      = input.float(5.0,  "R minima admitida (puntos, 0 = sin filtro)", minval=0, group=g4)
 
 g5 = "MODULO 5 - Interfaz visual"
 verNiveles= input.bool(true, "Dibujar niveles macro", group=g5)
