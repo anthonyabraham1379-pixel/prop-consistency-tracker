@@ -1,27 +1,33 @@
 //@version=6
 // ===========================================================================
-//  CRT + SMC INSTITUCIONAL  -  ES / NQ   (v2 mejorada)
+//  CRT + SMC INSTITUCIONAL  -  ES / NQ   (v3)
 //  Fusion de Candle Range Theory (Power of 3) y Smart Money Concepts
 //
 //  MODULO 1 - Niveles macro y sesgo CRT (Midnight Open, Asia H/L, PDH/PDL)
-//  MODULO 2 - Filtro operativo (Killzones NY AM / NY PM)
+//  MODULO 2 - Filtro operativo (Killzones NY AM / NY PM, activables por separado)
 //  MODULO 3 - Setup de entrada (Sweep -> MSS + Volumen -> FVG -> Limite)
-//  MODULO 4 - Gestion de riesgo (SL a 1 tick, TP1 1.5R 50%, TP2 2.0R, breakeven)
-//  MODULO 5 - Interfaz visual limpia + alertas alert()
+//              + Confluencia SMT opcional (divergencia ES<->NQ)
+//  MODULO 4 - Gestion de riesgo (SL 1 tick, TP1 50%, TP2 fijo R o por estructura)
+//  MODULO 5 - Interfaz visual: zonas de riesgo/premio pintadas + panel + alertas
 //
 //  ANTI-REPINTADO: toda ejecucion y senal se evalua con barstate.isconfirmed.
-//  Los niveles macro se construyen con acumuladores nativos por marca de
-//  tiempo (sin request.security), por lo que no existe fuga de datos futuros.
+//  Los niveles macro se construyen con acumuladores nativos por marca de tiempo.
+//  El SMT usa request.security con lookahead_off (sin fuga de datos futuros).
 //
-//  CAMBIOS v2:  1) Corregidas declaraciones var con coma (no compilaban).
-//               2) La fase se resetea al ejecutarse la entrada (evita
-//                  re-entrar sola en el mismo FVG tras cerrar).
-//               3) Breakeven opcional: mueve el SL a la entrada tras TP1.
-//               4) alert() con E/SL/TP al armarse el gatillo (operar en vivo).
-//               5) Lineas de E/SL/TP dibujadas mientras el limite vive.
+//  CONFIG VALIDADA (backtest 1 ano data real Databento, rango fijo):
+//    La mejor combinacion fue NQ, solo killzone NY AM, breakeven APAGADO,
+//    CRT on, volumen 1.5x, TP fijo 1.5R/2.0R.  -> defaults de este archivo.
+//    SMT y TP por estructura se validaron y NO mejoraron; quedan como
+//    opciones apagadas por si el usuario quiere experimentar.
+//
+//  CAMBIOS v3:  1) Killzones AM/PM activables por separado (default: AM).
+//               2) Breakeven apagado por default (mejoro el PnL en la data).
+//               3) Confluencia SMT opcional (ES<->NQ) con request.security.
+//               4) TP2 seleccionable: fijo por R o hacia la liquidez opuesta.
+//               5) Zonas de riesgo (rojo) y premio (verde) pintadas como cajas.
 // ===========================================================================
 
-strategy("CRT + SMC Institucional v2", "CRT-SMC v2",
+strategy("CRT + SMC Institucional v3", "CRT-SMC v3",
      overlay              = true,
      initial_capital      = 25000,
      default_qty_type     = strategy.fixed,
@@ -50,6 +56,8 @@ usarCRT   = input.bool(true, "Aplicar sesgo CRT (Premium/Discount)", group=g1)
 
 g2 = "MODULO 2 - Killzones"
 usarKZ    = input.bool(true,  "Operar solo dentro de killzones", group=g2)
+usarAM    = input.bool(true,  "Operar killzone NY AM", group=g2)
+usarPM    = input.bool(false, "Operar killzone NY PM", group=g2)
 sesionAM  = input.session("0930-1100", "Killzone NY AM (EST)", group=g2)
 sesionPM  = input.session("1330-1500", "Killzone NY PM (EST)", group=g2)
 
@@ -64,13 +72,20 @@ barrasLim = input.int(60,   "Velas max. que vive la orden limite", minval=1, gro
 usarAsia  = input.bool(true, "Incluir Asian High/Low como nivel de sweep", group=g3)
 usarPD    = input.bool(true, "Incluir PDH/PDL como nivel de sweep", group=g3)
 
+g3b = "MODULO 3b - Confluencia SMT (opcional, validada como NO-mejora)"
+usarSMT   = input.bool(false, "Requerir divergencia SMT en el sweep", group=g3b, tooltip="En backtest de 1 ano dejaba casi sin trades y en ES empeoraba. Apagado por default.")
+smtSym    = input.symbol("CME_MINI:NQ1!", "Simbolo correlacionado (ej. NQ si operas ES)", group=g3b)
+smtLen    = input.int(10, "Velas de referencia del pivote SMT", minval=2, group=g3b)
+
 g4 = "MODULO 4 - Gestion de riesgo"
 contratos = input.int(2,    "Contratos por operacion (par para TP escalonado)", minval=2, group=g4)
+modoTP    = input.string("Fijo (R)", "Modo de Take Profit 2", options=["Fijo (R)", "Estructura (liquidez opuesta)"], group=g4, tooltip="Fijo (R) fue el mejor en backtest. Estructura apunta a PDH/PDL/Asia opuesto.")
 tp1R      = input.float(1.5, "TP1 (multiplo de R) - cierra 50%", minval=0.1, step=0.1, group=g4)
 tp2R      = input.float(2.0, "TP2 (multiplo de R) - cierra el resto", minval=0.1, step=0.1, group=g4)
-usarBE    = input.bool(true, "Mover SL a breakeven tras TP1", group=g4)
+usarBE    = input.bool(false, "Mover SL a breakeven tras TP1", group=g4)
 horaCierre= input.int(16,   "Hora de cierre forzado (EST)", minval=0, maxval=23, group=g4)
 rMax      = input.float(30.0, "R maxima admitida (puntos)", minval=1, group=g4)
+rMin      = input.float(0.0,  "R minima admitida (puntos, 0 = sin filtro)", minval=0, group=g4)
 
 g5 = "MODULO 5 - Interfaz visual"
 verNiveles= input.bool(true, "Dibujar niveles macro", group=g5)
@@ -78,6 +93,7 @@ verFVG    = input.bool(true, "Dibujar FVG activos", group=g5)
 verEtiq   = input.bool(true, "Mostrar etiquetas Sweep / MSS", group=g5)
 verKZ     = input.bool(true, "Sombrear killzones", group=g5)
 verNiv    = input.bool(true, "Dibujar lineas E/SL/TP del limite vivo", group=g5)
+verZonas  = input.bool(true, "Pintar zonas de riesgo (rojo) y premio (verde)", group=g5)
 
 // ===========================================================================
 //  MODULO 1 - NIVELES MACRO Y SESGO CRT (Power of 3)
@@ -132,8 +148,8 @@ crtBajista = not usarCRT or (not na(midOpen) and close > midOpen)
 // ===========================================================================
 //  MODULO 2 - FILTRO OPERATIVO (KILLZONES)
 // ===========================================================================
-enAM = not na(time(timeframe.period, sesionAM, tzNY))
-enPM = not na(time(timeframe.period, sesionPM, tzNY))
+enAM = usarAM and not na(time(timeframe.period, sesionAM, tzNY))
+enPM = usarPM and not na(time(timeframe.period, sesionPM, tzNY))
 enKZ = enAM or enPM
 kzOK = not usarKZ or enKZ
 
@@ -169,8 +185,19 @@ barridoNivelL(nivel) =>
 barridoNivelS(nivel) =>
     not na(nivel) and high > nivel and close < nivel and mechaSup >= mechaMin * atr
 
-sweepL = confirmada and crtAlcista and (barridoNivelL(nivelCompraA) or barridoNivelL(nivelCompraB))
-sweepS = confirmada and crtBajista and (barridoNivelS(nivelVentaA)  or barridoNivelS(nivelVentaB))
+// --- Confluencia SMT (divergencia entre el activo y su correlacionado) ---
+// lookahead_off + valores de la vela cerrada => sin repintado ni fuga futura.
+[smtH, smtL] = request.security(smtSym, timeframe.period, [high, low], lookahead=barmerge.lookahead_off)
+priMinPrev = ta.lowest(low,   smtLen)[1]
+othMinPrev = ta.lowest(smtL,  smtLen)[1]
+priMaxPrev = ta.highest(high, smtLen)[1]
+othMaxPrev = ta.highest(smtH, smtLen)[1]
+// SMT alcista: el activo hace minimo nuevo pero el correlacionado NO (aguanta).
+smtBull = not usarSMT or (not na(othMinPrev) and low  < priMinPrev and smtL >= othMinPrev)
+smtBear = not usarSMT or (not na(othMaxPrev) and high > priMaxPrev and smtH <= othMaxPrev)
+
+sweepL = confirmada and crtAlcista and smtBull and (barridoNivelL(nivelCompraA) or barridoNivelL(nivelCompraB))
+sweepS = confirmada and crtBajista and smtBear and (barridoNivelS(nivelVentaA)  or barridoNivelS(nivelVentaB))
 
 // --- Maquina de estados del setup ---
 var int   faseL = 0
@@ -178,6 +205,7 @@ var float extL  = na
 var int   barMssL = na
 var float limL  = na
 var float slL   = na
+var float tp2L  = na
 var int   venceL = na
 
 var int   faseS = 0
@@ -185,10 +213,38 @@ var float extS  = na
 var int   barMssS = na
 var float limS  = na
 var float slS   = na
+var float tp2S  = na
 var int   venceS = na
 
 var box   cajaL = na
 var box   cajaS = na
+var box   zRiskL = na
+var box   zPremL = na
+var box   zRiskS = na
+var box   zPremS = na
+
+borrarZonasL() =>
+    box.delete(zRiskL)
+    box.delete(zPremL)
+borrarZonasS() =>
+    box.delete(zRiskS)
+    box.delete(zPremS)
+
+// TP2 objetivo: fijo por R o hacia la liquidez opuesta mas cercana (estructura).
+tpObjLargo(_lim, _r) =>
+    float liq = na
+    if not na(pdh) and pdh > _lim + 0.5 * _r
+        liq := pdh
+    if not na(asiaH) and asiaH > _lim + 0.5 * _r and (na(liq) or asiaH < liq)
+        liq := asiaH
+    modoTP == "Fijo (R)" or na(liq) ? _lim + tp2R * _r : liq
+tpObjCorto(_lim, _r) =>
+    float liq = na
+    if not na(pdl) and pdl < _lim - 0.5 * _r
+        liq := pdl
+    if not na(asiaL) and asiaL < _lim - 0.5 * _r and (na(liq) or asiaL > liq)
+        liq := asiaL
+    modoTP == "Fijo (R)" or na(liq) ? _lim - tp2R * _r : liq
 
 // ---- LADO COMPRADOR ----
 if sweepL
@@ -209,16 +265,22 @@ if faseL == 2 and confirmada and not na(barMssL)
     else if low > high[2] and (low - high[2]) >= fvgMin * atr
         limL   := low
         slL    := extL - syminfo.mintick
+        tp2L   := tpObjLargo(limL, limL - slL)
         venceL := bar_index + barrasLim
         faseL  := 3
         if verFVG
             box.delete(cajaL)
             cajaL := box.new(bar_index[2], low, bar_index + barrasLim, high[2], border_color=color.new(color.green, 40), bgcolor=color.new(color.green, 88))
+        if verZonas
+            borrarZonasL()
+            zRiskL := box.new(bar_index, limL, bar_index + barrasLim, slL,  border_color=color.new(color.red, 60),   bgcolor=color.new(color.red, 90))
+            zPremL := box.new(bar_index, tp2L, bar_index + barrasLim, limL, border_color=color.new(color.green, 60), bgcolor=color.new(color.green, 90))
 
 if faseL == 3
     if bar_index > venceL or low <= slL
         faseL := 0
         box.delete(cajaL)
+        borrarZonasL()
 
 // ---- LADO VENDEDOR ----
 if sweepS
@@ -239,16 +301,22 @@ if faseS == 2 and confirmada and not na(barMssS)
     else if high < low[2] and (low[2] - high) >= fvgMin * atr
         limS   := high
         slS    := extS + syminfo.mintick
+        tp2S   := tpObjCorto(limS, slS - limS)
         venceS := bar_index + barrasLim
         faseS  := 3
         if verFVG
             box.delete(cajaS)
             cajaS := box.new(bar_index[2], low[2], bar_index + barrasLim, high, border_color=color.new(color.red, 40), bgcolor=color.new(color.red, 88))
+        if verZonas
+            borrarZonasS()
+            zRiskS := box.new(bar_index, slS,  bar_index + barrasLim, limS, border_color=color.new(color.red, 60),   bgcolor=color.new(color.red, 90))
+            zPremS := box.new(bar_index, limS, bar_index + barrasLim, tp2S, border_color=color.new(color.green, 60), bgcolor=color.new(color.green, 90))
 
 if faseS == 3
     if bar_index > venceS or high >= slS
         faseS := 0
         box.delete(cajaS)
+        borrarZonasS()
 
 // ===========================================================================
 //  MODULO 4 - GESTION DE RIESGO
@@ -270,20 +338,21 @@ f_fmt(x) => str.tostring(x, format.mintick)
 var bool  beL = false
 var bool  beS = false
 
-if faseL == 3 and puedeOperar and strategy.position_size == 0 and not na(rLargo) and rLargo > 0 and rLargo <= rMax
+rOKlargo = not na(rLargo) and rLargo > 0 and rLargo <= rMax and (rMin <= 0 or rLargo >= rMin)
+rOKcorto = not na(rCorto) and rCorto > 0 and rCorto <= rMax and (rMin <= 0 or rCorto >= rMin)
+
+if faseL == 3 and puedeOperar and strategy.position_size == 0 and rOKlargo
     strategy.entry("L", strategy.long, qty=contratos, limit=limL, comment="CRT-Long")
     // Alerta con el plan completo para operar en vivo
     if faseL[1] != 3
         tp1 = limL + tp1R * rLargo
-        tp2 = limL + tp2R * rLargo
-        alert("CRT-SMC COMPRA " + syminfo.ticker + " (" + timeframe.period + "m) | LIMIT " + f_fmt(limL) + " SL " + f_fmt(slL) + " TP1 " + f_fmt(tp1) + " TP2 " + f_fmt(tp2), alert.freq_once_per_bar_close)
+        alert("CRT-SMC COMPRA " + syminfo.ticker + " (" + timeframe.period + "m) | LIMIT " + f_fmt(limL) + " SL " + f_fmt(slL) + " TP1 " + f_fmt(tp1) + " TP2 " + f_fmt(tp2L), alert.freq_once_per_bar_close)
 
-if faseS == 3 and puedeOperar and strategy.position_size == 0 and not na(rCorto) and rCorto > 0 and rCorto <= rMax
+if faseS == 3 and puedeOperar and strategy.position_size == 0 and rOKcorto
     strategy.entry("S", strategy.short, qty=contratos, limit=limS, comment="CRT-Short")
     if faseS[1] != 3
         tp1 = limS - tp1R * rCorto
-        tp2 = limS - tp2R * rCorto
-        alert("CRT-SMC VENTA " + syminfo.ticker + " (" + timeframe.period + "m) | LIMIT " + f_fmt(limS) + " SL " + f_fmt(slS) + " TP1 " + f_fmt(tp1) + " TP2 " + f_fmt(tp2), alert.freq_once_per_bar_close)
+        alert("CRT-SMC VENTA " + syminfo.ticker + " (" + timeframe.period + "m) | LIMIT " + f_fmt(limS) + " SL " + f_fmt(slS) + " TP1 " + f_fmt(tp1) + " TP2 " + f_fmt(tp2S), alert.freq_once_per_bar_close)
 
 // --- Salidas escalonadas + breakeven (se actualizan mientras hay posicion) ---
 if strategy.position_size > 0
@@ -291,19 +360,23 @@ if strategy.position_size > 0
         beL := true
     stopL = usarBE and beL ? strategy.position_avg_price : slL
     strategy.exit("L-TP1", from_entry="L", qty_percent=50, limit=limL + tp1R * rLargo, stop=slL, comment_profit="TP1", comment_loss="SL")
-    strategy.exit("L-TP2", from_entry="L", limit=limL + tp2R * rLargo, stop=stopL, comment_profit="TP2", comment_loss="BE/SL")
+    strategy.exit("L-TP2", from_entry="L", limit=tp2L, stop=stopL, comment_profit="TP2", comment_loss="BE/SL")
 
 if strategy.position_size < 0
     if usarBE and not beS and low <= limS - tp1R * rCorto
         beS := true
     stopS = usarBE and beS ? strategy.position_avg_price : slS
     strategy.exit("S-TP1", from_entry="S", qty_percent=50, limit=limS - tp1R * rCorto, stop=slS, comment_profit="TP1", comment_loss="SL")
-    strategy.exit("S-TP2", from_entry="S", limit=limS - tp2R * rCorto, stop=stopS, comment_profit="TP2", comment_loss="BE/SL")
+    strategy.exit("S-TP2", from_entry="S", limit=tp2S, stop=stopS, comment_profit="TP2", comment_loss="BE/SL")
 
 // --- Al ejecutarse la entrada, consumir el setup (evita re-entrar solo) ---
 if strategy.position_size != 0 and strategy.position_size[1] == 0
     faseL := 0
     faseS := 0
+    box.delete(cajaL)
+    box.delete(cajaS)
+    borrarZonasL()
+    borrarZonasS()
 // --- Al quedar plano, reiniciar el estado de breakeven ---
 if strategy.position_size == 0 and strategy.position_size[1] != 0
     beL := false
@@ -316,6 +389,10 @@ if cierreSesion
         strategy.close_all(comment="Cierre 16:00")
     faseL := 0
     faseS := 0
+    box.delete(cajaL)
+    box.delete(cajaS)
+    borrarZonasL()
+    borrarZonasS()
 
 // ===========================================================================
 //  MODULO 5 - INTERFAZ VISUAL
@@ -359,12 +436,12 @@ if verNiv and barstate.islast
         eLn  := line.new(bar_index, limL, bar_index + 8, limL, color=color.new(color.blue, 0), width=2)
         slLn := line.new(bar_index, slL,  bar_index + 8, slL,  color=color.new(color.red, 0), width=1)
         t1Ln := line.new(bar_index, limL + tp1R*rLargo, bar_index + 8, limL + tp1R*rLargo, color=color.new(color.green, 35), width=1)
-        t2Ln := line.new(bar_index, limL + tp2R*rLargo, bar_index + 8, limL + tp2R*rLargo, color=color.new(color.green, 0), width=1)
+        t2Ln := line.new(bar_index, tp2L, bar_index + 8, tp2L, color=color.new(color.green, 0), width=1)
     else if faseS == 3 and not na(rCorto)
         eLn  := line.new(bar_index, limS, bar_index + 8, limS, color=color.new(color.blue, 0), width=2)
         slLn := line.new(bar_index, slS,  bar_index + 8, slS,  color=color.new(color.red, 0), width=1)
         t1Ln := line.new(bar_index, limS - tp1R*rCorto, bar_index + 8, limS - tp1R*rCorto, color=color.new(color.green, 35), width=1)
-        t2Ln := line.new(bar_index, limS - tp2R*rCorto, bar_index + 8, limS - tp2R*rCorto, color=color.new(color.green, 0), width=1)
+        t2Ln := line.new(bar_index, tp2S, bar_index + 8, tp2S, color=color.new(color.green, 0), width=1)
 
 // --- Panel de estado ---
 var table pnl = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 25), border_width=1, border_color=color.new(color.gray, 70))
