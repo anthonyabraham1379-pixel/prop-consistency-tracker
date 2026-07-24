@@ -23,6 +23,14 @@
 //  claramente mejor en 1m (PF ~1.93) que en 5m (PF ~1.68). Montala en 1m ES.
 //  (El BOS de continuacion se probo y NO funciono en 1m ni 5m: se descarta.)
 //
+//  ORDER FLOW BACKTESTEABLE: por default el filtro usa como CIERRA la vela del
+//  sweep (CLV), un proxy del delta que existe en TODO el historico -> el
+//  backtest de 90/365 dias SI da resultados (no como el delta intrabar, que
+//  TV solo tiene ~2 semanas). En el ano completo de ES, la reversion solo AM
+//  con CLV>=0.70 dio PF ~2.96, positivo en las dos mitades. Para mas trades,
+//  deja NY PM encendido (menos consistente). Para vivo fiel, pon fuente
+//  "Intrabar delta".
+//
 //  GESTION DIARIA: stop de perdida diaria + tope de trades/dia bajan el
 //  drawdown a la mitad y suben la ganancia (ver grupo "Gestion diaria").
 //
@@ -55,7 +63,7 @@ horaAsiaI = input.int(18, "Inicio sesion asiatica (EST)", minval=0, maxval=23, g
 usarCRT   = input.bool(true, "Aplicar sesgo CRT", group=g1)
 usarKZ    = input.bool(true, "Operar solo en killzones", group=g1)
 usarAM    = input.bool(true, "Killzone NY AM", group=g1)
-usarPM    = input.bool(false, "Killzone NY PM", group=g1)
+usarPM    = input.bool(true,  "Killzone NY PM", group=g1)
 sesionAM  = input.session("0930-1100", "Horario AM (EST)", group=g1)
 sesionPM  = input.session("1330-1500", "Horario PM (EST)", group=g1)
 
@@ -72,8 +80,10 @@ usarPD    = input.bool(true, "Sweep de PDH/PDL", group=g2)
 
 g3 = "ORDER FLOW (filtro)"
 usarOF    = input.bool(true, "Entrar SOLO si el order flow confirma", group=g3)
-tfDelta   = input.timeframe("5S", "Timeframe del delta (menor al grafico)", group=g3)
-umbralOF  = input.float(0.0, "Umbral minimo de delta a favor", minval=0, group=g3)
+ofFuente  = input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=g3, tooltip="Vela: usa como cierra la vela del sweep (CLV). Funciona en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
+clvMin    = input.float(0.70, "CLV minimo del sweep a favor (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=g3, tooltip="Que tan fuerte cierra la vela del sweep hacia la direccion. 0.70 = cierra en el 30% superior (compra) o inferior (venta). En la data, 0.70 dio el mejor PF.")
+tfDelta   = input.timeframe("5S", "Timeframe del delta (modo Intrabar)", group=g3)
+umbralOF  = input.float(0.0, "Umbral minimo de delta a favor (modo Intrabar)", minval=0, group=g3)
 
 g4 = "Gestion de riesgo"
 contratos = input.int(2,    "Contratos (par para TP escalonado)", minval=2, group=g4)
@@ -182,6 +192,7 @@ var int   barMssL = na
 var float limL  = na
 var float slL   = na
 var float ofL   = na
+var float clvL  = na
 var int   venceL = na
 
 var int   faseS = 0
@@ -190,6 +201,7 @@ var int   barMssS = na
 var float limS  = na
 var float slS   = na
 var float ofS   = na
+var float clvS  = na
 var int   venceS = na
 
 var box   zRiskL = na
@@ -208,6 +220,7 @@ if sweepL
     faseL := 1
     extL  := low
     ofL   := deltaBar
+    clvL  := (close - low) / math.max(high - low, syminfo.mintick)
 if faseL == 1 and confirmada and not na(ultPH) and close > ultPH and volOK
     faseL   := 2
     barMssL := bar_index
@@ -218,7 +231,7 @@ if faseL == 2 and confirmada and not na(barMssL)
         limL := low
         slL  := extL - syminfo.mintick
         rr   = limL - slL
-        okOF = not usarOF or ofL >= umbralOF
+        okOF = not usarOF or (ofFuente == "Vela (backtest)" ? clvL >= clvMin : ofL >= umbralOF)
         pasa = not na(rr) and rr > 0 and rr <= rMax and (rMin <= 0 or rr >= rMin) and okOF
         if pasa
             venceL := bar_index + barrasLim
@@ -238,6 +251,7 @@ if sweepS
     faseS := 1
     extS  := high
     ofS   := deltaBar
+    clvS  := (high - close) / math.max(high - low, syminfo.mintick)
 if faseS == 1 and confirmada and not na(ultPL) and close < ultPL and volOK
     faseS   := 2
     barMssS := bar_index
@@ -248,7 +262,7 @@ if faseS == 2 and confirmada and not na(barMssS)
         limS := high
         slS  := extS + syminfo.mintick
         rr   = slS - limS
-        okOF = not usarOF or ofS <= -umbralOF
+        okOF = not usarOF or (ofFuente == "Vela (backtest)" ? clvS >= clvMin : ofS <= -umbralOF)
         pasa = not na(rr) and rr > 0 and rr <= rMax and (rMin <= 0 or rr >= rMin) and okOF
         if pasa
             venceS := bar_index + barrasLim
