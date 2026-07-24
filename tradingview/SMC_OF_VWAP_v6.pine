@@ -85,8 +85,12 @@ plot(verVWAP ? vL1 : na, "VWAP -1", color.new(color.gray, 40))
 plot(verVWAP ? vU2 : na, "VWAP +2", color.new(color.blue, 40))
 plot(verVWAP ? vL2 : na, "VWAP -2", color.new(color.blue, 40))
 
-vwBull = not usarVWAP or na(vwap) or close <= vwap   // largos desde descuento
-vwBear = not usarVWAP or na(vwap) or close >= vwap   // cortos desde premium
+// Sesgo direccional (seleccionable). En el ano completo CRT y TF mayor fueron
+// robustos (PF ~2.7-2.9); el VWAP puro fue el mas debil (PF 1.2). Default CRT.
+sesgoFuente = input.string("CRT (Midnight Open)", "Fuente del sesgo direccional", options=["CRT (Midnight Open)", "TF mayor (EMA)", "VWAP de sesion"], group=g2, tooltip="CRT: precio bajo/encima de la apertura de medianoche. TF mayor: EMA de 1H/4H (vela cerrada). VWAP: bajo/encima del VWAP de sesion.")
+htfTF   = input.timeframe("60", "TF mayor (para sesgo EMA)", group=g2)
+htfLen  = input.int(50, "EMA del TF mayor", minval=5, group=g2)
+htfEma  = request.security(syminfo.tickerid, htfTF, ta.ema(close, htfLen)[1], lookahead=barmerge.lookahead_off)
 
 // ===========================================================================
 //  3) NIVELES MACRO DE LIQUIDEZ (PDH/PDL, Asia H/L) - acumulador nativo
@@ -178,6 +182,12 @@ mechaSup = high - math.max(open, close)
 
 barrL(n) => not na(n) and low  < n and close > n and mechaInf >= mechaMin * atr
 barrS(n) => not na(n) and high > n and close < n and mechaSup >= mechaMin * atr
+
+// Resolucion del sesgo direccional segun la fuente elegida
+biasBull = sesgoFuente == "VWAP de sesion" ? (na(vwap) or close <= vwap) : sesgoFuente == "TF mayor (EMA)" ? (not na(htfEma) and close > htfEma) : (not na(midOpen) and close < midOpen)
+biasBear = sesgoFuente == "VWAP de sesion" ? (na(vwap) or close >= vwap) : sesgoFuente == "TF mayor (EMA)" ? (not na(htfEma) and close < htfEma) : (not na(midOpen) and close > midOpen)
+vwBull = not usarVWAP or biasBull
+vwBear = not usarVWAP or biasBear
 
 // SSL sweep (barrido de minimos) para LARGO ; BSL sweep (de maximos) para CORTO
 sweepL = ok and vwBull and (barrL(nivLongA) or barrL(nivLongB))
