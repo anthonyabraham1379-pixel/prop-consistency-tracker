@@ -203,6 +203,28 @@ volSma  = ta.sma(nz(volume), volLen)
 volOKn  = nz(volume) >= volSma * volMult
 volOKp  = nz(volume[1]) >= volSma[1] * volMult
 
+// ========== 5B) ORDER FLOW (delta comprador/vendedor en el sweep) ==========
+// Filtro validado sobre ticks reales de ES: exigir que el delta del sweep
+// confirme la direccion (compra en largos, venta en cortos) subio el PF de
+// ~1.0 a ~1.65 y bajo el drawdown. Es el filtro de calidad, no de frecuencia:
+// deja el score como esta (muchos trades) y descarta los de flujo en contra.
+// El delta se aproxima con sub-velas del TF menor (alcista=compra, bajista=venta).
+grpOF   = "5C) Order Flow (delta del sweep)"
+useOF   = input.bool(true,  "Exigir order flow a favor en el sweep", group=grpOF, tooltip="Largo: delta comprador. Corto: delta vendedor. Es el mejor filtro de calidad en los datos reales.")
+tfDelta = input.timeframe("5S", "Timeframe del delta (menor al grafico)", group=grpOF)
+umbralOF= input.float(0.0, "Umbral minimo de delta a favor", minval=0, group=grpOF)
+scoreOF = input.bool(false, "Sumar order flow al score (en vez de exigirlo)", group=grpOF, tooltip="Si lo activas, el order flow es un punto mas de confluencia (score sobre 8) en lugar de un requisito.")
+[ofO, ofC, ofV] = request.security_lower_tf(syminfo.tickerid, tfDelta, [open, close, volume])
+f_delta() =>
+    float d = 0.0
+    int n = array.size(ofC)
+    if n > 0
+        for i = 0 to n - 1
+            float v = array.get(ofV, i)
+            d += array.get(ofC, i) >= array.get(ofO, i) ? v : -v
+    d
+deltaBar = f_delta()
+
 // ========== 6) FVG (zona de entrada) ==========
 grpF = "6) FVG"
 showFVG = input.bool(true, "Dibujar FVGs", group=grpF)
@@ -330,6 +352,7 @@ bosShow = input.bool(true, "Marcar la oportunidad BOS en el grafico", group=grpB
 var int   swBearBar = na
 var float swBearExt = na
 var float swBearMssLvl = na
+var float swBearOF = na
 var bool  swBearVol = false
 var bool  swBearSMT = false
 var bool  swBearEQ  = false
@@ -340,6 +363,7 @@ var bool  bearFired = false
 var int   swBullBar = na
 var float swBullExt = na
 var float swBullMssLvl = na
+var float swBullOF = na
 var bool  swBullVol = false
 var bool  swBullSMT = false
 var bool  swBullEQ  = false
@@ -367,6 +391,7 @@ if sweepBear
     swBearMss := false
     swBearDisp := false
     swBearMssLvl := na(minorPL) ? low : minorPL
+    swBearOF := deltaBar
     bearFired := false
     lastBearSweepBar := bar_index
 if sweepBull
@@ -378,6 +403,7 @@ if sweepBull
     swBullMss := false
     swBullDisp := false
     swBullMssLvl := na(minorPH) ? high : minorPH
+    swBullOF := deltaBar
     bullFired := false
     lastBullSweepBar := bar_index
 
@@ -399,17 +425,24 @@ if mssBearHit
         label.new(bar_index, low, "MSS", style=label.style_label_up, color=cMssDn, textcolor=color.white, size=size.tiny)
 
 // Si un filtro esta apagado no penaliza el score. EQH/EQL es bonus.
+// Order flow: confirma si el delta del sweep va a favor del lado.
+ofBullYes = not na(swBullOF) and swBullOF >= umbralOF
+ofBearYes = not na(swBearOF) and swBearOF <= -umbralOF
 sHtfB = not useHTF or htfBull ? 1 : 0
 sVwB  = not useVW or vwBull ? 1 : 0
 sVolB = not useVol or swBullVol ? 1 : 0
 sSmtB = not useSMT or not corrOK or swBullSMT ? 1 : 0
-scoreBull = 2 + sHtfB + sVwB + sVolB + sSmtB + (swBullEQ ? 1 : 0)
+scoreBull = 2 + sHtfB + sVwB + sVolB + sSmtB + (swBullEQ ? 1 : 0) + (scoreOF and ofBullYes ? 1 : 0)
 
 sHtfS = not useHTF or htfBear ? 1 : 0
 sVwS  = not useVW or vwBear ? 1 : 0
 sVolS = not useVol or swBearVol ? 1 : 0
 sSmtS = not useSMT or not corrOK or swBearSMT ? 1 : 0
-scoreBear = 2 + sHtfS + sVwS + sVolS + sSmtS + (swBearEQ ? 1 : 0)
+scoreBear = 2 + sHtfS + sVwS + sVolS + sSmtS + (swBearEQ ? 1 : 0) + (scoreOF and ofBearYes ? 1 : 0)
+
+// Gate de order flow: si useOF y NO esta en modo score, es requisito duro.
+ofBullOK = not useOF or scoreOF or ofBullYes
+ofBearOK = not useOF or scoreOF or ofBearYes
 
 winBull = not na(swBullBar) and (bar_index - swBullBar) <= winBars and not bullFired
 winBear = not na(swBearBar) and (bar_index - swBearBar) <= winBars and not bearFired
@@ -440,8 +473,8 @@ pdShortOK = not usePD or close > pdEq
 dispBullOK = not useDisp or swBullDisp
 dispBearOK = not useDisp or swBearDisp
 
-gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull and pdLongOK and dispBullOK
-gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear and pdShortOK and dispBearOK
+gateBull = sesionOK and mssBullOK and entryBullTrig and riskOKBull and pdLongOK and dispBullOK and ofBullOK
+gateBear = sesionOK and mssBearOK and entryBearTrig and riskOKBear and pdShortOK and dispBearOK and ofBearOK
 buySig  = winBull and gateBull and scoreBull >= minScore and barstate.isconfirmed
 sellSig = winBear and gateBear and scoreBear >= minScore and barstate.isconfirmed
 
