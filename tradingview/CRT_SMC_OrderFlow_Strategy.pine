@@ -19,6 +19,13 @@
 //  Para validar el filtro en 6 meses usa el script de Python sobre tus ticks.
 //  =======================================================================
 //
+//  TEMPORALIDAD: 1 MINUTO. En los datos reales de ticks la reversion rindio
+//  claramente mejor en 1m (PF ~1.93) que en 5m (PF ~1.68). Montala en 1m ES.
+//  (El BOS de continuacion se probo y NO funciono en 1m ni 5m: se descarta.)
+//
+//  GESTION DIARIA: stop de perdida diaria + tope de trades/dia bajan el
+//  drawdown a la mitad y suben la ganancia (ver grupo "Gestion diaria").
+//
 //  ANTI-REPINTADO: barstate.isconfirmed, niveles por acumulador nativo,
 //  lookahead_off. 100% ASCII.
 // ===========================================================================
@@ -256,11 +263,26 @@ if faseS == 3 and (bar_index > venceS or high >= slS)
     faseS := 0
     borrarS()
 
+// ------------------------- GESTION DIARIA (baja el drawdown) ---------------
+// En los datos, un stop diario ~-800 USD y un tope de 3 trades/dia bajaron el
+// drawdown a la mitad Y subieron la ganancia (cortan el sangrado de dias trend).
+gDia    = "Gestion diaria (baja el DD)"
+stopDia = input.float(800, "Stop de perdida diaria (USD, 0 = off)", minval=0, group=gDia)
+maxTrDia= input.int(3, "Maximo de trades por dia (0 = sin limite)", minval=0, group=gDia)
+
+var float netIniDia = 0.0
+var int   trHoy = 0
+if nuevoDiaNY
+    netIniDia := strategy.netprofit
+    trHoy := 0
+pnlHoy = strategy.netprofit - netIniDia
+diaOK = (maxTrDia <= 0 or trHoy < maxTrDia) and (stopDia <= 0 or pnlHoy > -stopDia)
+
 // ------------------------- GESTION Y EJECUCION -----------------------------
 cierreSesion = nyHora >= horaCierre and nyHora[1] < horaCierre
 rLargo = na(limL) or na(slL) ? na : limL - slL
 rCorto = na(limS) or na(slS) ? na : slS - limS
-puedeOperar = kzOK and not cierreSesion
+puedeOperar = kzOK and not cierreSesion and diaOK
 
 var bool beL = false
 var bool beS = false
@@ -287,6 +309,7 @@ if strategy.position_size < 0
 if strategy.position_size != 0 and strategy.position_size[1] == 0
     faseL := 0
     faseS := 0
+    trHoy += 1
     borrarL()
     borrarS()
 if strategy.position_size == 0 and strategy.position_size[1] != 0
