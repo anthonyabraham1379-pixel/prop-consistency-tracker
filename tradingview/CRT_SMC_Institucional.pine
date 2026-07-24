@@ -1,0 +1,390 @@
+//@version=6
+// ===========================================================================
+//  CRT + SMC INSTITUCIONAL  -  ES / NQ   (v2 mejorada)
+//  Fusion de Candle Range Theory (Power of 3) y Smart Money Concepts
+//
+//  MODULO 1 - Niveles macro y sesgo CRT (Midnight Open, Asia H/L, PDH/PDL)
+//  MODULO 2 - Filtro operativo (Killzones NY AM / NY PM)
+//  MODULO 3 - Setup de entrada (Sweep -> MSS + Volumen -> FVG -> Limite)
+//  MODULO 4 - Gestion de riesgo (SL a 1 tick, TP1 1.5R 50%, TP2 2.0R, breakeven)
+//  MODULO 5 - Interfaz visual limpia + alertas alert()
+//
+//  ANTI-REPINTADO: toda ejecucion y senal se evalua con barstate.isconfirmed.
+//  Los niveles macro se construyen con acumuladores nativos por marca de
+//  tiempo (sin request.security), por lo que no existe fuga de datos futuros.
+//
+//  CAMBIOS v2:  1) Corregidas declaraciones var con coma (no compilaban).
+//               2) La fase se resetea al ejecutarse la entrada (evita
+//                  re-entrar sola en el mismo FVG tras cerrar).
+//               3) Breakeven opcional: mueve el SL a la entrada tras TP1.
+//               4) alert() con E/SL/TP al armarse el gatillo (operar en vivo).
+//               5) Lineas de E/SL/TP dibujadas mientras el limite vive.
+// ===========================================================================
+
+strategy("CRT + SMC Institucional v2", "CRT-SMC v2",
+     overlay              = true,
+     initial_capital      = 25000,
+     default_qty_type     = strategy.fixed,
+     default_qty_value    = 2,
+     commission_type      = strategy.commission.cash_per_contract,
+     commission_value     = 2.50,
+     slippage             = 1,
+     margin_long          = 0,
+     margin_short         = 0,
+     pyramiding           = 0,
+     calc_on_every_tick   = false,
+     process_orders_on_close = true,
+     max_boxes_count      = 200,
+     max_lines_count      = 200,
+     max_labels_count     = 300)
+
+confirmada = barstate.isconfirmed
+
+// ===========================================================================
+//  INPUTS
+// ===========================================================================
+g1 = "MODULO 1 - Niveles macro y sesgo CRT"
+tzNY      = input.string("America/New_York", "Zona horaria de referencia", group=g1)
+horaAsiaI = input.int(18, "Inicio sesion asiatica (hora EST)", minval=0, maxval=23, group=g1)
+usarCRT   = input.bool(true, "Aplicar sesgo CRT (Premium/Discount)", group=g1)
+
+g2 = "MODULO 2 - Killzones"
+usarKZ    = input.bool(true,  "Operar solo dentro de killzones", group=g2)
+sesionAM  = input.session("0930-1100", "Killzone NY AM (EST)", group=g2)
+sesionPM  = input.session("1330-1500", "Killzone NY PM (EST)", group=g2)
+
+g3 = "MODULO 3 - Setup de entrada"
+pivLen    = input.int(5,    "Longitud de pivote para MSS", minval=2, group=g3)
+mechaMin  = input.float(0.20, "Mecha minima del sweep (x ATR)", minval=0, step=0.05, group=g3)
+volLen    = input.int(20,   "Periodo SMA de volumen", minval=1, group=g3)
+volMult   = input.float(1.5, "Volumen minimo del MSS (x SMA)", minval=1.0, step=0.1, group=g3)
+fvgMin    = input.float(0.15, "Tamano minimo del FVG (x ATR)", minval=0, step=0.05, group=g3)
+barrasFVG = input.int(10,   "Velas max. para formar el FVG tras el MSS", minval=1, group=g3)
+barrasLim = input.int(60,   "Velas max. que vive la orden limite", minval=1, group=g3)
+usarAsia  = input.bool(true, "Incluir Asian High/Low como nivel de sweep", group=g3)
+usarPD    = input.bool(true, "Incluir PDH/PDL como nivel de sweep", group=g3)
+
+g4 = "MODULO 4 - Gestion de riesgo"
+contratos = input.int(2,    "Contratos por operacion (par para TP escalonado)", minval=2, group=g4)
+tp1R      = input.float(1.5, "TP1 (multiplo de R) - cierra 50%", minval=0.1, step=0.1, group=g4)
+tp2R      = input.float(2.0, "TP2 (multiplo de R) - cierra el resto", minval=0.1, step=0.1, group=g4)
+usarBE    = input.bool(true, "Mover SL a breakeven tras TP1", group=g4)
+horaCierre= input.int(16,   "Hora de cierre forzado (EST)", minval=0, maxval=23, group=g4)
+rMax      = input.float(30.0, "R maxima admitida (puntos)", minval=1, group=g4)
+
+g5 = "MODULO 5 - Interfaz visual"
+verNiveles= input.bool(true, "Dibujar niveles macro", group=g5)
+verFVG    = input.bool(true, "Dibujar FVG activos", group=g5)
+verEtiq   = input.bool(true, "Mostrar etiquetas Sweep / MSS", group=g5)
+verKZ     = input.bool(true, "Sombrear killzones", group=g5)
+verNiv    = input.bool(true, "Dibujar lineas E/SL/TP del limite vivo", group=g5)
+
+// ===========================================================================
+//  MODULO 1 - NIVELES MACRO Y SESGO CRT (Power of 3)
+//  Construccion nativa por marca de tiempo: cada nivel se congela cuando la
+//  ventana que lo define ya termino, de modo que nunca contiene datos futuros.
+// ===========================================================================
+atr = ta.atr(14)
+
+nyHora = hour(time, tzNY)
+nyDia  = dayofmonth(time, tzNY)
+nuevoDiaNY = nyDia != nyDia[1]
+
+var float acDiaH  = na
+var float acDiaL  = na
+var float acAsiaH = na
+var float acAsiaL = na
+
+var float midOpen = na
+var float asiaH   = na
+var float asiaL   = na
+var float pdh     = na
+var float pdl     = na
+
+enAsia     = nyHora >= horaAsiaI
+inicioAsia = enAsia and not enAsia[1]
+
+if nuevoDiaNY
+    midOpen := open
+    asiaH   := acAsiaH
+    asiaL   := acAsiaL
+    pdh     := acDiaH
+    pdl     := acDiaL
+    acDiaH  := high
+    acDiaL  := low
+else
+    acDiaH := na(acDiaH) ? high : math.max(acDiaH, high)
+    acDiaL := na(acDiaL) ? low  : math.min(acDiaL, low)
+
+if inicioAsia
+    acAsiaH := high
+    acAsiaL := low
+else if enAsia
+    acAsiaH := na(acAsiaH) ? high : math.max(acAsiaH, high)
+    acAsiaL := na(acAsiaL) ? low  : math.min(acAsiaL, low)
+
+// --- Sesgo CRT ---
+// Precio DEBAJO del Midnight Open -> Discount -> sesgo ALCISTA
+// Precio ENCIMA del Midnight Open -> Premium  -> sesgo BAJISTA
+crtAlcista = not usarCRT or (not na(midOpen) and close < midOpen)
+crtBajista = not usarCRT or (not na(midOpen) and close > midOpen)
+
+// ===========================================================================
+//  MODULO 2 - FILTRO OPERATIVO (KILLZONES)
+// ===========================================================================
+enAM = not na(time(timeframe.period, sesionAM, tzNY))
+enPM = not na(time(timeframe.period, sesionPM, tzNY))
+enKZ = enAM or enPM
+kzOK = not usarKZ or enKZ
+
+bgcolor(verKZ and enAM ? color.new(color.teal, 93) : na, title="KZ NY AM")
+bgcolor(verKZ and enPM ? color.new(color.blue, 93) : na, title="KZ NY PM")
+
+// ===========================================================================
+//  MODULO 3 - SETUP DE ENTRADA (MECANICA SMC)
+//  Secuencia obligatoria:  Sweep -> MSS (+volumen) -> FVG -> orden limite
+// ===========================================================================
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low,  pivLen, pivLen)
+var float ultPH = na
+var float ultPL = na
+if not na(ph)
+    ultPH := ph
+if not na(pl)
+    ultPL := pl
+
+volSMA = ta.sma(volume, volLen)
+volOK  = volume > volSMA * volMult
+
+nivelCompraA = usarPD   ? pdl   : na
+nivelCompraB = usarAsia ? asiaL : na
+nivelVentaA  = usarPD   ? pdh   : na
+nivelVentaB  = usarAsia ? asiaH : na
+
+mechaInf = math.min(open, close) - low
+mechaSup = high - math.max(open, close)
+
+barridoNivelL(nivel) =>
+    not na(nivel) and low < nivel and close > nivel and mechaInf >= mechaMin * atr
+barridoNivelS(nivel) =>
+    not na(nivel) and high > nivel and close < nivel and mechaSup >= mechaMin * atr
+
+sweepL = confirmada and crtAlcista and (barridoNivelL(nivelCompraA) or barridoNivelL(nivelCompraB))
+sweepS = confirmada and crtBajista and (barridoNivelS(nivelVentaA)  or barridoNivelS(nivelVentaB))
+
+// --- Maquina de estados del setup ---
+var int   faseL = 0
+var float extL  = na
+var int   barMssL = na
+var float limL  = na
+var float slL   = na
+var int   venceL = na
+
+var int   faseS = 0
+var float extS  = na
+var int   barMssS = na
+var float limS  = na
+var float slS   = na
+var int   venceS = na
+
+var box   cajaL = na
+var box   cajaS = na
+
+// ---- LADO COMPRADOR ----
+if sweepL
+    faseL := 1
+    extL  := low
+    if verEtiq
+        label.new(bar_index, low, "Sweep", yloc=yloc.belowbar, style=label.style_label_up, color=color.new(color.teal, 20), textcolor=color.white, size=size.tiny)
+
+if faseL == 1 and confirmada and not na(ultPH) and close > ultPH and volOK
+    faseL   := 2
+    barMssL := bar_index
+    if verEtiq
+        label.new(bar_index, high, "MSS", yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.green, 20), textcolor=color.white, size=size.tiny)
+
+if faseL == 2 and confirmada and not na(barMssL)
+    if bar_index - barMssL > barrasFVG
+        faseL := 0
+    else if low > high[2] and (low - high[2]) >= fvgMin * atr
+        limL   := low
+        slL    := extL - syminfo.mintick
+        venceL := bar_index + barrasLim
+        faseL  := 3
+        if verFVG
+            box.delete(cajaL)
+            cajaL := box.new(bar_index[2], low, bar_index + barrasLim, high[2], border_color=color.new(color.green, 40), bgcolor=color.new(color.green, 88))
+
+if faseL == 3
+    if bar_index > venceL or low <= slL
+        faseL := 0
+        box.delete(cajaL)
+
+// ---- LADO VENDEDOR ----
+if sweepS
+    faseS := 1
+    extS  := high
+    if verEtiq
+        label.new(bar_index, high, "Sweep", yloc=yloc.abovebar, style=label.style_label_down, color=color.new(color.maroon, 20), textcolor=color.white, size=size.tiny)
+
+if faseS == 1 and confirmada and not na(ultPL) and close < ultPL and volOK
+    faseS   := 2
+    barMssS := bar_index
+    if verEtiq
+        label.new(bar_index, low, "MSS", yloc=yloc.belowbar, style=label.style_label_up, color=color.new(color.red, 20), textcolor=color.white, size=size.tiny)
+
+if faseS == 2 and confirmada and not na(barMssS)
+    if bar_index - barMssS > barrasFVG
+        faseS := 0
+    else if high < low[2] and (low[2] - high) >= fvgMin * atr
+        limS   := high
+        slS    := extS + syminfo.mintick
+        venceS := bar_index + barrasLim
+        faseS  := 3
+        if verFVG
+            box.delete(cajaS)
+            cajaS := box.new(bar_index[2], low[2], bar_index + barrasLim, high, border_color=color.new(color.red, 40), bgcolor=color.new(color.red, 88))
+
+if faseS == 3
+    if bar_index > venceS or high >= slS
+        faseS := 0
+        box.delete(cajaS)
+
+// ===========================================================================
+//  MODULO 4 - GESTION DE RIESGO
+//  SL: 1 tick mas alla de la mecha extrema del sweep.
+//  TP escalonado: 1.5R cierra el 50%, 2.0R cierra el resto.
+//  Breakeven: tras alcanzar TP1, el SL del resto pasa a la entrada.
+//  Cierre forzado de cualquier posicion abierta a las 16:00 EST.
+// ===========================================================================
+cierreSesion = nyHora >= horaCierre and nyHora[1] < horaCierre
+
+rLargo = na(limL) or na(slL) ? na : limL - slL
+rCorto = na(limS) or na(slS) ? na : slS - limS
+
+puedeOperar = kzOK and not cierreSesion
+
+f_fmt(x) => str.tostring(x, format.mintick)
+
+// --- Colocacion de la orden limite al armarse el setup (una sola vez) ---
+var bool  beL = false
+var bool  beS = false
+
+if faseL == 3 and puedeOperar and strategy.position_size == 0 and not na(rLargo) and rLargo > 0 and rLargo <= rMax
+    strategy.entry("L", strategy.long, qty=contratos, limit=limL, comment="CRT-Long")
+    // Alerta con el plan completo para operar en vivo
+    if faseL[1] != 3
+        tp1 = limL + tp1R * rLargo
+        tp2 = limL + tp2R * rLargo
+        alert("CRT-SMC COMPRA " + syminfo.ticker + " (" + timeframe.period + "m) | LIMIT " + f_fmt(limL) + " SL " + f_fmt(slL) + " TP1 " + f_fmt(tp1) + " TP2 " + f_fmt(tp2), alert.freq_once_per_bar_close)
+
+if faseS == 3 and puedeOperar and strategy.position_size == 0 and not na(rCorto) and rCorto > 0 and rCorto <= rMax
+    strategy.entry("S", strategy.short, qty=contratos, limit=limS, comment="CRT-Short")
+    if faseS[1] != 3
+        tp1 = limS - tp1R * rCorto
+        tp2 = limS - tp2R * rCorto
+        alert("CRT-SMC VENTA " + syminfo.ticker + " (" + timeframe.period + "m) | LIMIT " + f_fmt(limS) + " SL " + f_fmt(slS) + " TP1 " + f_fmt(tp1) + " TP2 " + f_fmt(tp2), alert.freq_once_per_bar_close)
+
+// --- Salidas escalonadas + breakeven (se actualizan mientras hay posicion) ---
+if strategy.position_size > 0
+    if usarBE and not beL and high >= limL + tp1R * rLargo
+        beL := true
+    stopL = usarBE and beL ? strategy.position_avg_price : slL
+    strategy.exit("L-TP1", from_entry="L", qty_percent=50, limit=limL + tp1R * rLargo, stop=slL, comment_profit="TP1", comment_loss="SL")
+    strategy.exit("L-TP2", from_entry="L", limit=limL + tp2R * rLargo, stop=stopL, comment_profit="TP2", comment_loss="BE/SL")
+
+if strategy.position_size < 0
+    if usarBE and not beS and low <= limS - tp1R * rCorto
+        beS := true
+    stopS = usarBE and beS ? strategy.position_avg_price : slS
+    strategy.exit("S-TP1", from_entry="S", qty_percent=50, limit=limS - tp1R * rCorto, stop=slS, comment_profit="TP1", comment_loss="SL")
+    strategy.exit("S-TP2", from_entry="S", limit=limS - tp2R * rCorto, stop=stopS, comment_profit="TP2", comment_loss="BE/SL")
+
+// --- Al ejecutarse la entrada, consumir el setup (evita re-entrar solo) ---
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    faseL := 0
+    faseS := 0
+// --- Al quedar plano, reiniciar el estado de breakeven ---
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    beL := false
+    beS := false
+
+// --- Cierre forzado al final de la sesion ---
+if cierreSesion
+    strategy.cancel_all()
+    if strategy.position_size != 0
+        strategy.close_all(comment="Cierre 16:00")
+    faseL := 0
+    faseS := 0
+
+// ===========================================================================
+//  MODULO 5 - INTERFAZ VISUAL
+// ===========================================================================
+var line lnMid = na
+var line lnAH  = na
+var line lnAL  = na
+var line lnPDH = na
+var line lnPDL = na
+
+pintarNivel(ln, precio, col, est) =>
+    line res = ln
+    if verNiveles and not na(precio)
+        if na(res)
+            res := line.new(bar_index - 1, precio, bar_index, precio, color=col, style=est, width=1, extend=extend.right)
+        else
+            line.set_xy1(res, bar_index - 1, precio)
+            line.set_xy2(res, bar_index, precio)
+    res
+
+if barstate.islast
+    lnMid := pintarNivel(lnMid, midOpen, color.new(color.orange, 20), line.style_solid)
+    lnAH  := pintarNivel(lnAH,  asiaH,   color.new(color.gray, 30),   line.style_dotted)
+    lnAL  := pintarNivel(lnAL,  asiaL,   color.new(color.gray, 30),   line.style_dotted)
+    lnPDH := pintarNivel(lnPDH, pdh,     color.new(color.red, 40),    line.style_dashed)
+    lnPDL := pintarNivel(lnPDL, pdl,     color.new(color.green, 40),  line.style_dashed)
+
+// --- Lineas E/SL/TP del limite vivo (planeacion visual) ---
+var line eLn = na
+var line slLn = na
+var line t1Ln = na
+var line t2Ln = na
+borrarPlan() =>
+    line.delete(eLn)
+    line.delete(slLn)
+    line.delete(t1Ln)
+    line.delete(t2Ln)
+if verNiv and barstate.islast
+    borrarPlan()
+    if faseL == 3 and not na(rLargo)
+        eLn  := line.new(bar_index, limL, bar_index + 8, limL, color=color.new(color.blue, 0), width=2)
+        slLn := line.new(bar_index, slL,  bar_index + 8, slL,  color=color.new(color.red, 0), width=1)
+        t1Ln := line.new(bar_index, limL + tp1R*rLargo, bar_index + 8, limL + tp1R*rLargo, color=color.new(color.green, 35), width=1)
+        t2Ln := line.new(bar_index, limL + tp2R*rLargo, bar_index + 8, limL + tp2R*rLargo, color=color.new(color.green, 0), width=1)
+    else if faseS == 3 and not na(rCorto)
+        eLn  := line.new(bar_index, limS, bar_index + 8, limS, color=color.new(color.blue, 0), width=2)
+        slLn := line.new(bar_index, slS,  bar_index + 8, slS,  color=color.new(color.red, 0), width=1)
+        t1Ln := line.new(bar_index, limS - tp1R*rCorto, bar_index + 8, limS - tp1R*rCorto, color=color.new(color.green, 35), width=1)
+        t2Ln := line.new(bar_index, limS - tp2R*rCorto, bar_index + 8, limS - tp2R*rCorto, color=color.new(color.green, 0), width=1)
+
+// --- Panel de estado ---
+var table pnl = table.new(position.top_right, 2, 5, bgcolor=color.new(color.black, 25), border_width=1, border_color=color.new(color.gray, 70))
+if barstate.islast
+    sesgoTxt = not usarCRT ? "Off" : crtAlcista ? "Discount -> Largos" : crtBajista ? "Premium -> Cortos" : "-"
+    sesgoCol = crtAlcista ? color.lime : crtBajista ? color.red : color.gray
+    faseTxt  = faseL == 3 or faseS == 3 ? "Limite activa" : faseL == 2 or faseS == 2 ? "Esperando FVG" : faseL == 1 or faseS == 1 ? "Esperando MSS" : "Sin setup"
+    table.cell(pnl, 0, 0, "Sesgo CRT", text_color=color.white, text_size=size.tiny)
+    table.cell(pnl, 1, 0, sesgoTxt, text_color=sesgoCol, text_size=size.tiny)
+    table.cell(pnl, 0, 1, "Killzone", text_color=color.white, text_size=size.tiny)
+    table.cell(pnl, 1, 1, enAM ? "NY AM" : enPM ? "NY PM" : "Fuera", text_color=enKZ ? color.lime : color.gray, text_size=size.tiny)
+    table.cell(pnl, 0, 2, "Fase del setup", text_color=color.white, text_size=size.tiny)
+    table.cell(pnl, 1, 2, faseTxt, text_color=color.orange, text_size=size.tiny)
+    table.cell(pnl, 0, 3, "Volumen", text_color=color.white, text_size=size.tiny)
+    table.cell(pnl, 1, 3, volOK ? "Institucional" : "Normal", text_color=volOK ? color.lime : color.gray, text_size=size.tiny)
+    table.cell(pnl, 0, 4, "Midnight Open", text_color=color.white, text_size=size.tiny)
+    table.cell(pnl, 1, 4, na(midOpen) ? "-" : str.tostring(midOpen, format.mintick), text_color=color.orange, text_size=size.tiny)
+
+// ===========================================================================
+//  ALERTAS (condiciones para el creador de alertas clasico)
+// ===========================================================================
+alertcondition(faseL == 3 and faseL[1] != 3, title="Setup largo listo", message="CRT+SMC: sweep + MSS + FVG alcista - orden limite colocada")
+alertcondition(faseS == 3 and faseS[1] != 3, title="Setup corto listo", message="CRT+SMC: sweep + MSS + FVG bajista - orden limite colocada")
