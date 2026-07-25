@@ -611,6 +611,7 @@ f_fmt(x) => str.tostring(x, format.mintick)
 // ========== 9) EJECUCION DEL BACKTEST + ALERTAS ==========
 grpT = "9) Backtest"
 useBE    = input.bool(true, "Mover SL a breakeven a mitad de camino", group=grpT)
+beAtR    = input.float(1.5, "Activar breakeven a los (multiplo de R)", step=0.1, group=grpT, tooltip="En 1m subelo (ej. 2.0-2.5) para que el runner no muera en BE con los pullbacks pequenos. 1.5 = comportamiento actual (BE al tocar TP1).")
 closeSes = input.bool(true, "Cerrar posiciones al terminar la sesion", group=grpT)
 
 var box  zoneG  = na
@@ -682,8 +683,8 @@ if entShort and strategy.position_size == 0 and not entLong
 
 // Breakeven: en modo USD se activa a mitad de camino al TP;
 // en modo ATR se activa cuando el precio toca TP1
-beTrigL = usdMode ? posEntry + (posTP1 - posEntry) / 2 : posTP1
-beTrigS = usdMode ? posEntry - (posEntry - posTP1) / 2 : posTP1
+beTrigL = usdMode ? posEntry + (posTP1 - posEntry) / 2 : posEntry + beAtR * (posEntry - posSL)
+beTrigS = usdMode ? posEntry - (posEntry - posTP1) / 2 : posEntry - beAtR * (posSL - posEntry)
 
 if strategy.position_size > 0
     if useBE and not beDone and high >= beTrigL
