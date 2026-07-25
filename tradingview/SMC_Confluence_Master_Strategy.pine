@@ -210,7 +210,7 @@ volOKp  = nz(volume[1]) >= volSma[1] * volMult
 // deja el score como esta (muchos trades) y descarta los de flujo en contra.
 // El delta se aproxima con sub-velas del TF menor (alcista=compra, bajista=venta).
 grpOF   = "5C) Order Flow (del sweep)"
-useOF   = input.bool(true,  "Exigir order flow a favor en el sweep", group=grpOF, tooltip="Largo: presion compradora. Corto: presion vendedora. Es el mejor filtro de calidad en los datos reales (PF ~1.0 -> ~2.7).")
+useOF   = input.bool(false, "Exigir order flow a favor en el sweep", group=grpOF, tooltip="OPCIONAL, apagado por default para no alterar el sistema validado. Actívalo y mide en el Probador. Largo: presion compradora; corto: vendedora (proxy de vela CLV, backtesteable).")
 ofFuente= input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=grpOF, tooltip="Vela: usa como cierra la vela del sweep (CLV), existe en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
 clvMin  = input.float(0.70, "CLV minimo del sweep (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=grpOF)
 tfDelta = input.timeframe("5S", "Timeframe del delta (modo Intrabar)", group=grpOF)
@@ -481,8 +481,8 @@ dispBearOK = not useDisp or swBearDisp
 
 // --- Limite diario (baja el drawdown; en la data ~-800/dia lo bajo a la mitad) ---
 grpDia   = "8D) Limite diario"
-stopDia  = input.float(800, "Stop de perdida diaria (USD, 0=off)", minval=0, group=grpDia)
-maxTrDia = input.int(3, "Maximo de trades por dia (0=off)", minval=0, group=grpDia)
+stopDia  = input.float(0, "Stop de perdida diaria (USD, 0=off)", minval=0, group=grpDia, tooltip="OPCIONAL, apagado por default. En la data ~-800/dia bajo el drawdown, pero puede cortar dias buenos de alta frecuencia. Actívalo y mide.")
+maxTrDia = input.int(0, "Maximo de trades por dia (0=off)", minval=0, group=grpDia)
 var float netIniDia = 0.0
 var int   trDia = 0
 newDayNY = dayofmonth(time, "America/New_York") != dayofmonth(time, "America/New_York")[1]
