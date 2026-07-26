@@ -259,6 +259,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 BeAtR             = 1.5;
                 CloseAtSessionEnd = true;
 
+                // ---- 0) Rendimiento ----
+                UsarSerieTick = true;
+
                 // ---- 10) Visual ----
                 ShowVisuals   = true;
                 ShowDashboard = true;
@@ -268,14 +271,19 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (State == State.Configure)
             {
                 // 1) Serie de 1 tick: motor de delta + granularidad de llenado.
-                IdxTick = 1;
-                AddDataSeries(BarsPeriodType.Tick, 1);
+                //    En MODO RAPIDO no se carga: un ano de ticks de ES son
+                //    cientos de millones de registros y el backtest no termina.
+                int next = 1;
+                if (UsarSerieTick)
+                {
+                    IdxTick = next++;
+                    AddDataSeries(BarsPeriodType.Tick, 1);
+                }
+                else IdxTick = -1;
 
                 // 2) Temporalidad mayor para el sesgo.
-                IdxHtf = 2;
+                IdxHtf = next++;
                 AddDataSeries(BarsPeriodType.Minute, HtfMinutes);
-
-                int next = 3;
 
                 // 3) SMT (instrumento correlacionado, misma temporalidad).
                 if (UseSmt)
@@ -285,7 +293,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 }
 
                 // 4) Ask/Bid para clasificacion real del volumen.
-                if (DeltaSrc == SmcDeltaSource.BidAsk)
+                if (DeltaSrc == SmcDeltaSource.BidAsk && UsarSerieTick)
                 {
                     IdxAsk = next++;
                     AddDataSeries(null, BarsPeriodType.Tick, 1, MarketDataType.Ask);
@@ -374,7 +382,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (BarsInProgress == IdxBid) { curBid = Closes[IdxBid][0]; return; }
 
             // --- serie de 1 tick: motor de delta + gestion intrabar ---
-            if (BarsInProgress == IdxTick)
+            if (IdxTick > 0 && BarsInProgress == IdxTick)
             {
                 AcumularDelta();
                 GestionIntrabar();
@@ -424,7 +432,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             // A partir de aqui hace falta historia suficiente para operar.
             if (CurrentBars[0] < Math.Max(BarsRequiredToTrade, PivotLen * 2 + 2)) return;
-            if (CurrentBars[IdxTick] < 1 || CurrentBars[IdxHtf] < HtfEmaPeriod + 1) return;
+            if (IdxTick > 0 && CurrentBars[IdxTick] < 1) return;
+            if (CurrentBars[IdxHtf] < HtfEmaPeriod + 1) return;
 
             double atr = atrInd[0];
             if (atr <= 0) return;
@@ -543,6 +552,16 @@ namespace NinjaTrader.NinjaScript.Strategies
             bool ofBullYes = swBullDeltaRatio >=  OfMinRatio;
             bool ofBearYes = swBearDeltaRatio <= -OfMinRatio;
 
+            // Sin serie de 1 tick (modo rapido) no hay delta que medir: los tres
+            // filtros de order flow se desactivan solos, porque si no un delta de
+            // cero los pondria en falso y bloquearia TODAS las senales.
+            if (!UsarSerieTick && DeltaSrc != SmcDeltaSource.Volumetric)
+            {
+                ofBullYes = true; ofBearYes = true;
+                swBullAbsorp = true; swBearAbsorp = true;
+                swBullMssDelta = true; swBearMssDelta = true;
+            }
+
             // 12) SCORE. Base 7 (identico al sistema validado en TradingView).
             //     Si OrderFlowAsScore esta activo, el flujo suma hasta 3 puntos
             //     mas (max 10) en vez de ser un requisito duro.
@@ -648,6 +667,9 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (buySig)       AbrirLargo(atr, usdMode, riskPts, tgtPts, slStructBull, scoreBull);
                 else if (sellSig) AbrirCorto(atr, usdMode, riskPts, tgtPts, slStructBear, scoreBear);
             }
+
+            // 16b) Sin serie de 1 tick el breakeven se evalua al cierre de vela.
+            if (IdxTick < 0) GestionBarra(Close[0]);
 
             // 17) Panel.
             if (ShowDashboard && State == State.Realtime)
@@ -891,13 +913,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 SetStopLoss("L1",   CalculationMode.Price, posSL,  false);
                 SetProfitTarget("L1", CalculationMode.Price, posTP1);
-                EnterLong(IdxTick, q1, "L1");
+                if (IdxTick > 0) EnterLong(IdxTick, q1, "L1"); else EnterLong(q1, "L1");
             }
             if (q2 > 0)
             {
                 SetStopLoss("L2",   CalculationMode.Price, posSL, false);
                 SetProfitTarget("L2", CalculationMode.Price, q1 > 0 ? posTP2 : posTP1);
-                EnterLong(IdxTick, q2, "L2");
+                if (IdxTick > 0) EnterLong(IdxTick, q2, "L2"); else EnterLong(q2, "L2");
             }
 
             tradesToday++;
@@ -930,13 +952,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 SetStopLoss("S1",   CalculationMode.Price, posSL,  false);
                 SetProfitTarget("S1", CalculationMode.Price, posTP1);
-                EnterShort(IdxTick, q1, "S1");
+                if (IdxTick > 0) EnterShort(IdxTick, q1, "S1"); else EnterShort(q1, "S1");
             }
             if (q2 > 0)
             {
                 SetStopLoss("S2",   CalculationMode.Price, posSL, false);
                 SetProfitTarget("S2", CalculationMode.Price, q1 > 0 ? posTP2 : posTP1);
-                EnterShort(IdxTick, q2, "S2");
+                if (IdxTick > 0) EnterShort(IdxTick, q2, "S2"); else EnterShort(q2, "S2");
             }
 
             tradesToday++;
@@ -955,11 +977,14 @@ namespace NinjaTrader.NinjaScript.Strategies
         /// </summary>
         private void GestionIntrabar()
         {
+            GestionBarra(Closes[IdxTick][0]);
+        }
+
+        private void GestionBarra(double px)
+        {
             if (!UseBreakeven || beDone) return;
             if (Position.MarketPosition == MarketPosition.Flat) return;
             if (posEntry <= 0 || posSL <= 0) return;
-
-            double px = Closes[IdxTick][0];
 
             // Se usa el precio MEDIO REAL de la posicion, no el cierre de la
             // vela de la senal: la entrada es a mercado y se llena en el tick
@@ -1033,6 +1058,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         // ===============================================================
         //  PARAMETROS
         // ===============================================================
+
+        #region 0) Rendimiento
+        [NinjaScriptProperty]
+        [Display(Name = "Cargar serie de 1 tick (order flow)", Order = 1, GroupName = "0) Rendimiento",
+                 Description = "ON = delta real y llenado intrabar exacto, pero un ano de ticks de ES "
+                             + "es lentisimo (usalo en tramos de 1-3 meses). OFF = modo rapido, sin order "
+                             + "flow, sirve para correr el ano entero y sacar la linea base.")]
+        public bool UsarSerieTick { get; set; }
+        #endregion
 
         #region 1) Sesion
         [NinjaScriptProperty]
