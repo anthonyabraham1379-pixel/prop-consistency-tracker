@@ -122,3 +122,76 @@ hipótesis, no como hecho.**
    no a favor), midiendo el A/B.
 5. **No llevar nada a real** hasta tener walk-forward propio en NinjaTrader
    sobre 6–12 meses con delta real.
+
+---
+
+## 6. AMD / Power of Three (Acumulación → Manipulación → Distribución)
+
+Hipótesis **distinta** a lo anterior: en vez de barrer pivotes locales sin
+horario, se barre el **rango de una sesión** en una **ventana de tiempo
+concreta** (el *judas swing*).
+
+Estructura probada: rango de acumulación → el precio sale de él entre las
+09:30 y 10:30 ET y cierra de vuelta dentro → se entra al lado contrario,
+stop tras el extremo, objetivo 2R.
+
+### Rejilla completa (5m, 16 combinaciones)
+
+| Rango de acumulación | Mejor PF | Peor PF | ¿Todas positivas? |
+|---|---|---|---|
+| Asia 19–23 ET | 0.93 | 0.90 | ❌ ninguna |
+| Londres 02–08:30 | 1.20 | 1.00 | ~ |
+| Overnight 18–09:30 | 1.56 | 1.09 | ✅ |
+| **Premarket 04–09:30** | **1.36** | **1.22** | ✅ |
+
+### Sensibilidad a parámetros — la mejor de toda la investigación
+
+Moviendo los bordes del rango de acumulación (12 variantes):
+**PF entre 1.17 y 1.44, todas positivas.** Para comparar, la reversión a VWAP
+oscilaba entre 0.69 y 1.27 haciendo lo mismo.
+
+Moviendo el múltiplo de R: 1.11 / 1.13 / 1.31 / 1.23 / 1.33 / 1.41. Todas
+positivas y creciendo de forma ordenada.
+
+### Y aun así, no pasa
+
+| Prueba | Resultado |
+|---|---|
+| Walk-forward (mitades) | **0.75 / 1.88** ❌ |
+| Meses positivos | 6/13 ❌ |
+| Total del año | +15.855 |
+| **Quitando los 2 mejores meses** | **−4.105** ❌ |
+| Febrero 2026 solo | +11.358 (**71% del total**) |
+
+Parecía haber un filtro de régimen: por terciles de volatilidad previa
+(ATR de 20 días, sin mirar al futuro) daba **0.48 / 1.59 / 1.92**, monotónico
+y con sentido mecánico. Pero al quitar los dos mejores meses del tercil alto,
+**1.92 baja a 1.07**. El "régimen" eran los meses.
+
+**Control:** el mismo corte de volatilidad sobre el SMC de 1m da 0.87 → 0.97.
+La volatilidad alta ayuda un poco a todo, pero no convierte un sistema
+perdedor en ganador. Confirma que el salto de AMD no era el régimen.
+
+**Veredicto:** el concepto AMD es el **más robusto a la elección de
+parámetros** de todo lo probado — eso es real y no lo consigue ningún otro.
+Pero no tiene edge demostrable sobre el año: un mes carga el 71% del
+resultado.
+
+---
+
+## 7. La conclusión de fondo
+
+Probado sobre un año de ES: barrido→MSS (en 1m, 3m, 5m, 15m y 30m), BOS de
+continuación, ORB, reversión a VWAP, order flow por proxy, order flow con
+delta real, DOM y AMD en 16 configuraciones.
+
+**Todo aterriza en PF ≈ 1.0 con inestabilidad temporal.**
+
+Eso no es un fallo del método — es la respuesta. El ES intradía es de los
+mercados más eficientes que existen, y **el edge marginal de una estructura
+mecánica de entrada es aproximadamente cero**.
+
+Lo cual tiene una consecuencia que encaja con este mismo proyecto: si la
+señal de entrada no es donde está el margen, entonces está en la **gestión**
+— tamaño de posición, límite diario, consistencia, no romper las reglas de la
+prop firm. Que es exactamente lo que hace la app de este repositorio.
