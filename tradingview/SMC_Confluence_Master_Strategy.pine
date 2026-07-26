@@ -35,6 +35,15 @@
 //  - Sesgo HTF con vela HTF CERRADA (idiom [1] + lookahead_on).
 //  - Pivotes confirmados con retardo fijo, nunca se redibujan.
 // ===================================================================
+// -------------------------------------------------------------------
+// AVISO (medido sobre ticks reales de ES, 58.139 velas de 1m):
+// El modo de order flow "Vela (backtest)" usa el proxy CLV. En la
+// VELA DEL BARRIDO ese proxy no informa nada: dice COMPRA el 100% de
+// las veces mientras el delta real es positivo solo el 49.7%. En
+// velas normales el proxy si sirve (corr 0.71), pero el barrido es
+// justo donde se usa. Para order flow de verdad usa la version de
+// NinjaTrader: ninjatrader/SmcOrderFlowMaster.cs
+// -------------------------------------------------------------------
 strategy("SMC Confluence Master v2 Backtest", "SMC BT",
      overlay=true, initial_capital=25000,
      margin_long=0, margin_short=0,
@@ -211,7 +220,7 @@ volOKp  = nz(volume[1]) >= volSma[1] * volMult
 // El delta se aproxima con sub-velas del TF menor (alcista=compra, bajista=venta).
 grpOF   = "5C) Order Flow (del sweep)"
 useOF   = input.bool(false, "Exigir order flow a favor en el sweep", group=grpOF, tooltip="OPCIONAL, apagado por default para no alterar el sistema validado. Activalo y mide en el Probador. Largo: presion compradora; corto: vendedora (proxy de vela CLV, backtesteable).")
-ofFuente= input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=grpOF, tooltip="Vela: usa como cierra la vela del sweep (CLV), existe en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
+ofFuente= input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=grpOF, tooltip="ADVERTENCIA MEDIDA: sobre 58.139 velas de ES 1m con ticks reales, este proxy CLV NO informa nada en la vela del barrido: dice COMPRA el 100% de las veces mientras el delta real es positivo solo el 49.7% (cara o cruz). En velas normales si funciona (corr 0.71, signo 89%), pero el barrido es justo donde falla. Para order flow de verdad usa ninjatrader/SmcOrderFlowMaster.cs, que calcula delta tick a tick. Vela: usa como cierra la vela del sweep (CLV), existe en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
 clvMin  = input.float(0.70, "CLV minimo del sweep (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=grpOF)
 tfDelta = input.timeframe("5S", "Timeframe del delta (modo Intrabar)", group=grpOF)
 umbralOF= input.float(0.0, "Umbral de delta a favor (modo Intrabar)", minval=0, group=grpOF)

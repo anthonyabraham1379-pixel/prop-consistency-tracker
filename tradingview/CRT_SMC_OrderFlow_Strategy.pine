@@ -37,6 +37,15 @@
 //  ANTI-REPINTADO: barstate.isconfirmed, niveles por acumulador nativo,
 //  lookahead_off. 100% ASCII.
 // ===========================================================================
+// -------------------------------------------------------------------
+// AVISO (medido sobre ticks reales de ES, 58.139 velas de 1m):
+// El modo de order flow "Vela (backtest)" usa el proxy CLV. En la
+// VELA DEL BARRIDO ese proxy no informa nada: dice COMPRA el 100% de
+// las veces mientras el delta real es positivo solo el 49.7%. En
+// velas normales el proxy si sirve (corr 0.71), pero el barrido es
+// justo donde se usa. Para order flow de verdad usa la version de
+// NinjaTrader: ninjatrader/SmcOrderFlowMaster.cs
+// -------------------------------------------------------------------
 strategy("CRT + SMC + OF Strategy", "CRT-SMC-OF",
      overlay              = true,
      initial_capital      = 25000,
@@ -80,7 +89,7 @@ usarPD    = input.bool(true, "Sweep de PDH/PDL", group=g2)
 
 g3 = "ORDER FLOW (filtro)"
 usarOF    = input.bool(true, "Entrar SOLO si el order flow confirma", group=g3)
-ofFuente  = input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=g3, tooltip="Vela: usa como cierra la vela del sweep (CLV). Funciona en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
+ofFuente  = input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=g3, tooltip="ADVERTENCIA MEDIDA: sobre 58.139 velas de ES 1m con ticks reales, este proxy CLV NO informa nada en la vela del barrido: dice COMPRA el 100% de las veces mientras el delta real es positivo solo el 49.7% (cara o cruz). En velas normales si funciona (corr 0.71, signo 89%), pero el barrido es justo donde falla. Para order flow de verdad usa ninjatrader/SmcOrderFlowMaster.cs, que calcula delta tick a tick. Vela: usa como cierra la vela del sweep (CLV). Funciona en TODO el historico -> el backtest de 90/365 dias SI da resultados. Intrabar: delta real por sub-velas, mas fiel pero TV solo lo tiene en las ~2 semanas recientes.")
 clvMin    = input.float(0.70, "CLV minimo del sweep a favor (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=g3, tooltip="Que tan fuerte cierra la vela del sweep hacia la direccion. 0.70 = cierra en el 30% superior (compra) o inferior (venta). En la data, 0.70 dio el mejor PF.")
 tfDelta   = input.timeframe("5S", "Timeframe del delta (modo Intrabar)", group=g3)
 umbralOF  = input.float(0.0, "Umbral minimo de delta a favor (modo Intrabar)", minval=0, group=g3)

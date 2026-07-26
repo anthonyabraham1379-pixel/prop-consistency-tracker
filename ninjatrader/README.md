@@ -354,39 +354,63 @@ forma consistente, y el perfil de volatilidad lo respalda: el rango medio por
 vela es 3,4–4,0 pts entre las 08:00 y las 10:00 CT, frente a 2,5–2,7 por la
 tarde. Si prefieres tu ventana original, pon 1400 y lo mides tú.
 
-### 10.4 Lo que NO se pudo confirmar
+### 10.4 Por qué el test del año NO invalida la absorción
 
-El proxy CLV de la absorción, aplicado al año completo, **no reproduce** la
-mejora que dio sobre los 41 días de ticks reales:
+La prueba de la sección anterior usó el **proxy CLV** para estimar el delta,
+porque las velas de un año traen el volumen **total** pero no el desglose
+compra/venta. Ese desglose solo existe en los 57 días de ticks que subiste.
 
-| | 41 días (ticks reales) | Año completo (proxy CLV) |
+Así que medí el proxy contra el delta real en los **58.139 minutos donde
+tengo los dos**. El resultado invalida el test, no la absorción:
+
+| Tipo de vela | corr proxy vs delta real | acierta el signo |
 |---|---|---|
-| Base | 1.14 | 0.87 |
-| + absorción | **1.77** | **0.88** |
+| Velas normales (sin mecha dominante) | **0.71** | **88.9%** |
+| **Velas de barrido** (mecha larga + cierre alto) | **0.007** | **49.7%** |
 
-Dos lecturas posibles, y con estos datos **no puedo distinguir cuál**:
+En la vela del barrido — que es **exactamente** la que el sistema opera — el
+proxy CLV dice "COMPRA" en el **100%** de los casos, mientras el delta real es
+positivo solo en el **49.7%**. Es una moneda al aire.
 
-1. El proxy CLV no captura la absorción real. El CVD de verdad se construye
-   con delta tick a tick; el proxy es una aproximación por la forma de la vela.
-2. El resultado de los 41 días fue ruido de muestra.
+Y tiene una explicación limpia: en un barrido alcista el precio pincha el
+mínimo y cierra arriba. La forma de la vela grita "compradores". El flujo real
+suele ser **vendedor** — son los stops saltando contra un comprador pasivo que
+absorbe. **Eso es la absorción.** El proxy la lee justo al revés.
 
-**Ese es exactamente el experimento que este código permite hacer y
-TradingView no**: correr la absorción con **delta real** sobre 6–12 meses en el
-Strategy Analyzer. Es la pregunta abierta, y es la razón de que valga la pena
-instalar esto.
+**Consecuencias:**
 
-### 10.5 Conclusión honesta
+1. El resultado "absorción 0.87 → 0.88 sobre el año" **no mide la absorción**.
+   Mide ruido. No confirma ni desmiente nada.
+2. El hallazgo de los 41 días con delta real (1.14 → **1.77**) sigue siendo la
+   única evidencia que existe, y ya no está contradicha.
+3. El filtro de order flow por CLV de los scripts de **TradingView** está
+   midiendo ruido en la vela del barrido. Quedan marcados con un aviso.
+4. Sin delta real no hay forma de resolverlo. Por eso NinjaTrader.
 
-Sobre el año completo, medido con comisión y slippage reales, **el sistema base
-no tiene edge en ES 1m**: PF entre 0.87 y 1.03 según la ventana. El único
-resultado prometedor (la absorción sobre ticks reales) está **sin confirmar**
-fuera de una muestra de 41 días.
+### 10.5 Lo que SÍ se sostiene del test del año
 
-**No lleves esto a una cuenta real todavía.** El orden correcto es:
+Todo lo que no usó el proxy — es decir, precio y volumen total, que sí son
+reales en las velas del año:
 
-1. Correr en NT8 el A/B de la absorción con **delta real** sobre 6+ meses.
-2. Si el PF sube de forma consistente en Walk-Forward → hay algo, y entonces se
-   afina.
+- La **excursión simétrica** (MFE 1.61R vs MAE 1.70R).
+- El sistema base **sin edge**: PF 0.87 en la ventana 0730–1400.
+- **Ningún filtro del score ayuda**; subir el mínimo empeora.
+- La **tarde sangra**: 1300–1500 CT, PF 0.62, −13.319 en 162 señales.
+- La ventana **0830–1100 CT** es la mejor: PF 1.03.
+
+### 10.6 Conclusión honesta
+
+El esqueleto del sistema (barrido → MSS, sin order flow) **no tiene edge en ES
+1m sobre el año completo**. Eso está medido y no depende de ningún proxy.
+
+Si el sistema tiene algo, está en el **order flow real**, y esa pregunta sigue
+abierta: la única muestra con delta de verdad son 41 días y dio 1.14 → 1.77.
+
+**No lo lleves a cuenta real todavía.** El orden correcto:
+
+1. En NT8, A/B de la absorción con **delta real** sobre 6+ meses. Tienes 6
+   meses de ticks en casa, y NinjaTrader además descarga los suyos.
+2. Si el PF sube de forma consistente en Walk-Forward → hay algo real.
 3. Si no sube → el sistema es ruido con buena estética, y toca cambiar de
-   concepto (la reversión a VWAP de 2SD fue lo único que dio PF ~1.2 estable
-   sobre el año).
+   concepto (la reversión a VWAP de 2SD fue lo único con PF ~1.2 estable sobre
+   el año).

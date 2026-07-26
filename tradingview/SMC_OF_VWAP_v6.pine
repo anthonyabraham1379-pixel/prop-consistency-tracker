@@ -14,6 +14,15 @@
 //  CERO REPINTADO: toda senal se evalua en barstate.isconfirmed; niveles macro
 //  por acumulador nativo; sin request.security con lookahead. 100% ASCII.
 // ===========================================================================
+// -------------------------------------------------------------------
+// AVISO (medido sobre ticks reales de ES, 58.139 velas de 1m):
+// El modo de order flow "Vela (backtest)" usa el proxy CLV. En la
+// VELA DEL BARRIDO ese proxy no informa nada: dice COMPRA el 100% de
+// las veces mientras el delta real es positivo solo el 49.7%. En
+// velas normales el proxy si sirve (corr 0.71), pero el barrido es
+// justo donde se usa. Para order flow de verdad usa la version de
+// NinjaTrader: ninjatrader/SmcOrderFlowMaster.cs
+// -------------------------------------------------------------------
 strategy("SMC + Order Flow + VWAP v6", "SMC-OF-VWAP",
      overlay                 = true,
      initial_capital         = 25000,
@@ -144,7 +153,7 @@ else if enAsia
 // ===========================================================================
 g4       = "4) Order Flow"
 usarOF   = input.bool(true, "Exigir order flow a favor en el sweep", group=g4)
-ofFuente = input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=g4, tooltip="Vela=usa como cierra la vela del sweep (CLV), existe en todo el historico. Intrabar=delta real por sub-velas, solo ~2 semanas en TV.")
+ofFuente = input.string("Vela (backtest)", "Fuente del order flow", options=["Vela (backtest)", "Intrabar delta (en vivo)"], group=g4, tooltip="ADVERTENCIA MEDIDA: sobre 58.139 velas de ES 1m con ticks reales, este proxy CLV NO informa nada en la vela del barrido: dice COMPRA el 100% de las veces mientras el delta real es positivo solo el 49.7% (cara o cruz). En velas normales si funciona (corr 0.71, signo 89%), pero el barrido es justo donde falla. Para order flow de verdad usa ninjatrader/SmcOrderFlowMaster.cs, que calcula delta tick a tick. Vela=usa como cierra la vela del sweep (CLV), existe en todo el historico. Intrabar=delta real por sub-velas, solo ~2 semanas en TV.")
 clvMin   = input.float(0.70, "CLV minimo del sweep (modo Vela)", minval=0.5, maxval=1.0, step=0.05, group=g4)
 tfDelta  = input.timeframe("5S", "TF del delta (modo Intrabar)", group=g4)
 
