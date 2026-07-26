@@ -204,10 +204,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // ---- 5C) Order flow ----
                 DeltaSrc          = SmcDeltaSource.ReglaDelTick;
-                UseOrderFlow      = true;
+                UseOrderFlow      = false;
                 OrderFlowAsScore  = false;
-                OfMinRatio        = 0.10;
-                UseAbsorption     = false;
+                OfMinRatio        = 0.0;
+                UseAbsorption     = true;
                 UseMssDelta       = false;
                 OfMssMinRatio     = 0.15;
 
@@ -492,12 +492,16 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // Puerta dura de order flow (si no esta en modo score).
-            bool ofBullOK = !UseOrderFlow || OrderFlowAsScore
-                            || (ofBullYes
+            // Los tres filtros son INDEPENDIENTES: se puede exigir solo la
+            // absorcion, solo el delta del sweep, o cualquier combinacion.
+            // Sobre los ticks reales de ES cada uno por separado supero a la
+            // combinacion de ambos, asi que no los enciendas los dos a ciegas.
+            bool ofBullOK = OrderFlowAsScore
+                            || ((!UseOrderFlow  || ofBullYes)
                                 && (!UseAbsorption || swBullAbsorp)
                                 && (!UseMssDelta   || swBullMssDelta));
-            bool ofBearOK = !UseOrderFlow || OrderFlowAsScore
-                            || (ofBearYes
+            bool ofBearOK = OrderFlowAsScore
+                            || ((!UseOrderFlow  || ofBearYes)
                                 && (!UseAbsorption || swBearAbsorp)
                                 && (!UseMssDelta   || swBearMssDelta));
 
@@ -1032,7 +1036,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         public SmcDeltaSource DeltaSrc { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Exigir order flow a favor", Order = 2, GroupName = "5C) Order Flow")]
+        [Display(Name = "Exigir delta del sweep a favor", Order = 2, GroupName = "5C) Order Flow",
+                 Description = "Sobre ticks reales de ES: PF 1.14 -> 2.48 con umbral 0.0 (n=25 en 41 dias). Filtro independiente de la absorcion.")]
         public bool UseOrderFlow { get; set; }
 
         [NinjaScriptProperty]
@@ -1041,18 +1046,22 @@ namespace NinjaTrader.NinjaScript.Strategies
         public bool OrderFlowAsScore { get; set; }
 
         [NinjaScriptProperty]
-        [Range(0.0, 1.0)]
+        [Range(-1.0, 1.0)]
         [Display(Name = "Ratio minimo de delta en el barrido", Order = 4, GroupName = "5C) Order Flow",
                  Description = "(compra-venta)/(compra+venta) de la vela del barrido. 0.10 = 10% neto a favor.")]
         public double OfMinRatio { get; set; }
 
         [NinjaScriptProperty]
         [Display(Name = "Exigir absorcion (divergencia CVD)", Order = 5, GroupName = "5C) Order Flow",
-                 Description = "El precio hace un extremo nuevo pero el delta acumulado NO lo acompana.")]
+                 Description = "El precio hace un extremo nuevo pero el delta acumulado NO lo acompana. "
+                             + "El filtro mas robusto sobre ticks reales de ES: PF 1.14 -> 1.77 (n=36), "
+                             + "positivo en las dos mitades y en los dos lados.")]
         public bool UseAbsorption { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Exigir delta en la vela del MSS", Order = 6, GroupName = "5C) Order Flow")]
+        [Display(Name = "Exigir delta en la vela del MSS", Order = 6, GroupName = "5C) Order Flow",
+                 Description = "OJO: sobre ticks reales de ES este filtro RESTA (PF 0.96 con 0.10, 0.47 con 0.15). "
+                             + "Entras persiguiendo el movimiento. Dejalo apagado salvo que tu propia data diga otra cosa.")]
         public bool UseMssDelta { get; set; }
 
         [NinjaScriptProperty]

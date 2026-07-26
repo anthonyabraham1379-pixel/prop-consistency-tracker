@@ -70,7 +70,7 @@ Estos son los defaults del código, iguales a tu configuración de TradingView:
 | TP1 / TP2 | 1.5R / 3.0R |
 | Contratos | 1 |
 | Breakeven | ON a 1.5R |
-| **Order flow** | **ON, ratio 0.10, absorción OFF, delta MSS OFF** |
+| **Order flow** | **Absorción ON · ratio de delta OFF · delta MSS OFF** |
 
 **Ajuste horario a CT**: si tu NinjaTrader está configurado en hora Central,
 déjalo en `0`. Si está en hora de Nueva York, ponlo en `-1`.
@@ -108,11 +108,56 @@ Output y cae a delta cero (usa otro modo).
 
 | Confirmación | Qué mide | Default |
 |---|---|---|
-| **Ratio de delta en el barrido** | `(compra-venta)/(compra+venta)` de la vela del sweep ≥ 0.10 en largos | **ON** |
-| **Absorción (divergencia CVD)** | El precio hace un mínimo más bajo que el swing anterior pero el delta acumulado **no** lo acompaña → el vendedor empujó sin flujo detrás | OFF |
-| **Delta en la vela del MSS** | El rompimiento de estructura viene con participación real, no con una mecha | OFF |
+| **Ratio de delta en el barrido** | `(compra-venta)/(compra+venta)` de la vela del sweep ≥ umbral | OFF (umbral 0.00) |
+| **Absorción (divergencia CVD)** | El precio hace un mínimo más bajo que el swing anterior pero el delta acumulado **no** lo acompaña → el vendedor empujó sin flujo detrás | **ON** |
+| **Delta en la vela del MSS** | El rompimiento de estructura viene con participación real, no con una mecha | OFF (resta, ver abajo) |
 
-Dos modos de uso:
+Los tres son **gates independientes**: puedes exigir solo uno, o combinarlos.
+
+### Calibración sobre tus ticks reales de ES
+
+Los defaults **no son inventados**. Corrí la lógica exacta de este `.cs`
+(pivote 4 → sweep con mecha 0.5×ATR → MSS pivote 2 → SL estructural, TP 1.5R,
+1 contrato, sesión 0730–1400 CT) sobre los ticks de ES que subiste:
+**60 trades en 41 días**.
+
+| Configuración | n | WR | PF | trades/sem |
+|---|---|---|---|---|
+| Base, sin order flow | 60 | 42% | **1.14** | 7.3 |
+| **Absorción (divergencia CVD)** | 36 | 50% | **1.77** | 4.4 |
+| Delta del sweep ≥ 0.00 | 25 | 56% | **2.48** | 3.0 |
+| Delta del sweep ≥ 0.10 | 10 | 60% | 3.42 | 1.2 |
+| Absorción + delta ≥ 0 (los dos) | 18 | 56% | 2.69 | 2.2 |
+| Delta en el MSS ≥ 0.10 | 26 | 35% | **0.96** | 3.2 |
+| Delta en el MSS ≥ 0.15 | 16 | 25% | **0.47** | 2.0 |
+
+Prueba de estabilidad, partiendo el set en dos mitades:
+
+| | 1ª mitad | 2ª mitad |
+|---|---|---|
+| Base | 0.99 | 1.29 |
+| **Absorción** | **1.48** | **2.04** |
+| Delta ≥ 0 | 1.91 | 2.79 |
+| Absorción + delta ≥ 0 | 1.09 | 3.77 |
+
+**Conclusiones que fijaron los defaults:**
+
+1. **La absorción es el filtro más robusto**: positivo en las dos mitades
+   (1.48 / 2.04) *y* en los dos lados (largos 1.64, cortos 1.94), y deja 4.4
+   trades/semana, dentro de tu objetivo de 3–7. Por eso viene **encendida**.
+2. **El umbral de delta 0.10 era demasiado agresivo** (n=10). El dato soporta
+   **0.00** — solo exigir que el delta sea positivo. Bajé el default.
+3. **Los dos filtros juntos son peores que cada uno solo** (1ª mitad cae a
+   1.09). Por eso ahora son gates independientes: no los enciendas los dos.
+4. **El delta en la vela del MSS resta** (PF 0.96 y 0.47). Entras persiguiendo
+   el movimiento. Queda apagado.
+5. El sesgo HTF, en esta muestra, no aportó (1.03 a favor vs 1.27 en contra).
+
+> **Advertencia honesta:** 41 días y 60 trades base es una muestra **pequeña**.
+> Esto son hipótesis calibradas, no conclusiones. El Walk-Forward de
+> NinjaTrader sobre 6–12 meses es lo que las confirma o las tumba.
+
+### Los dos modos de uso
 
 - **Puerta dura** (`Order flow como puntos de score` = OFF): la señal se
   descarta si el flujo no confirma. Filtro de calidad, reduce trades.
@@ -198,9 +243,11 @@ Actívalos de uno en uno y mide.
 
 1. Compilar, aplicar en ES 1m, ver que el panel muestra delta y CVD vivos.
 2. Backtest de 1 mes con los defaults → anotar PF, DD, trades/semana.
-3. Repetir con `Exigir order flow a favor` en OFF → comparar. Así mides
-   exactamente cuánto aporta el delta real.
-4. Si aporta: probar `Absorción` ON (uno por vez).
+3. Repetir con `Exigir absorcion` en OFF → comparar. Así mides exactamente
+   cuánto aporta el flujo real (en tus ticks fue PF 1.14 → 1.77).
+4. A/B contra la otra opción: absorción OFF y `Exigir delta del sweep a favor`
+   ON con umbral 0.00 (en tus ticks dio PF 2.48 con menos trades). Uno por vez,
+   nunca los dos juntos.
 5. Walk-Forward sobre 6–12 meses.
 6. Monte Carlo.
 7. Market Replay de 2 semanas.
