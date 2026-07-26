@@ -137,7 +137,13 @@ namespace NinjaTrader.NinjaScript.Strategies
         private bool   beDone;
         private int    lastScore;
 
+        // ---------- embudo de diagnostico ----------
+        private int cntSweep, cntMss, cntIn;
+        private int cntNoSes, cntNoScore, cntNoOf, cntNoRisk, cntNoDia;
+
         // ---------- control diario ----------
+        private int    sessionStartBar = -1;   // para no comparar CVD entre sesiones
+        private int    lastEntryBar    = -1;   // evita reenviar la entrada si aun no lleno
         private double dayStartCum = 0;
         private int    tradesToday = 0;
         private bool   dayBlocked  = false;
@@ -170,7 +176,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 TraceOrders                                 = false;
                 RealtimeErrorHandling                       = RealtimeErrorHandling.StopCancelClose;
                 BarsRequiredToTrade                         = 20;
-                IsInstantiatedOnEachOptimizationIteration   = false;
+                // NO poner esto en false: esta estrategia guarda mucho estado
+                // (pivotes, CVD, setups, contadores) y al reutilizar el objeto
+                // ese estado se arrastraria de una iteracion de optimizacion a
+                // la siguiente, contaminando el Walk Forward. Va en true aunque
+                // cueste algo de velocidad.
+                IsInstantiatedOnEachOptimizationIteration   = true;
 
                 // ---- 1) Sesion ----
                 UseSession   = true;
@@ -291,7 +302,60 @@ namespace NinjaTrader.NinjaScript.Strategies
                 emaHtf = EMA(Closes[IdxHtf], HtfEmaPeriod);
 
                 cvdSeries = new Series<double>(this, MaximumBarsLookBack.Infinite);
+                ResetEstado();
             }
+            else if (State == State.Terminated)
+            {
+                // Embudo: te dice QUE filtro esta matando los setups. Si ves
+                // muchos barridos y pocas entradas, aqui esta el motivo exacto.
+                if (cntSweep > 0)
+                {
+                    Print("===== SMC ORDER FLOW MASTER - EMBUDO =====");
+                    Print("  Barridos detectados      : " + cntSweep);
+                    Print("  Confirmaron MSS          : " + cntMss);
+                    Print("  Descartados por sesion   : " + cntNoSes);
+                    Print("  Descartados por score    : " + cntNoScore);
+                    Print("  Descartados por flujo    : " + cntNoOf);
+                    Print("  Descartados por riesgo   : " + cntNoRisk);
+                    Print("  Descartados por lim.dia  : " + cntNoDia);
+                    Print("  ENTRADAS                 : " + cntIn);
+                    Print("==========================================");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deja todo el estado en cero. Se llama al cargar los datos para que
+        /// una reaplicacion en el mismo grafico no arrastre nada del run anterior.
+        /// </summary>
+        private void ResetEstado()
+        {
+            accBuy = accSell = barBuy = barSell = 0;
+            lastTickPx = 0; lastTickBuy = true;
+            curAsk = curBid = 0; cvd = 0;
+            vwapPv = vwapVol = vwapVal = 0;
+
+            lastPH = prevPH = lastPL = prevPL = double.NaN;
+            lastPHBar = lastPLBar = -1;
+            minorPH = minorPL = corrPH = corrPL = double.NaN;
+
+            bullFvgTop = bullFvgBot = bearFvgTop = bearFvgBot = double.NaN;
+            bullFvgBar = bearFvgBar = -1;
+
+            swBullBar = swBearBar = -1;
+            swBullExt = swBullMssLvl = swBullDeltaRatio = 0;
+            swBearExt = swBearMssLvl = swBearDeltaRatio = 0;
+            swBullVol = swBullSmt = swBullEq = swBullMss = swBullAbsorp = swBullMssDelta = false;
+            swBearVol = swBearSmt = swBearEq = swBearMss = swBearAbsorp = swBearMssDelta = false;
+
+            posEntry = posSL = posTP1 = posTP2 = 0;
+            beDone = false; lastScore = 0;
+
+            cntSweep = cntMss = cntIn = 0;
+            cntNoSes = cntNoScore = cntNoOf = cntNoRisk = cntNoDia = 0;
+
+            sessionStartBar = -1; lastEntryBar = -1;
+            dayStartCum = 0; tradesToday = 0; dayBlocked = false;
         }
 
         // ===============================================================
@@ -332,6 +396,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             {
                 vwapPv = 0; vwapVol = 0;
                 cvd = 0;
+                sessionStartBar = CurrentBar;
                 dayStartCum = SystemPerformance.AllTrades.TradesPerformance.Currency.CumProfit;
                 tradesToday = 0;
                 dayBlocked  = false;
@@ -395,6 +460,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (swBearBar >= 0 && (CurrentBar - swBearBar) > WindowBars) { swBearBar = -1; swBearMss = false; }
 
             // 9) Registrar el barrido con TODA su huella de order flow.
+            if (sweepBull || sweepBear) cntSweep++;
             if (sweepBull)
             {
                 swBullBar        = CurrentBar;
@@ -409,8 +475,12 @@ namespace NinjaTrader.NinjaScript.Strategies
                 // Absorcion: el precio hace un minimo MAS BAJO que el swing
                 // anterior, pero el CVD NO hace un minimo mas bajo -> el
                 // vendedor empujo sin flujo detras. Firma clasica de trampa.
+                // El CVD se reinicia en cada sesion, asi que solo tiene sentido
+                // comparar contra un swing de la MISMA sesion. Sobre tus ticks
+                // reales de ES esto afecta al 1% de los barridos, pero comparar
+                // el CVD de hoy contra el de ayer no significa nada.
                 swBullAbsorp = false;
-                if (lastPLBar >= 0)
+                if (lastPLBar >= sessionStartBar && lastPLBar >= 0)
                 {
                     int back = CurrentBar - lastPLBar;
                     if (back > 0 && back < CurrentBar)
@@ -432,7 +502,7 @@ namespace NinjaTrader.NinjaScript.Strategies
                 swBearMssDelta   = false;
                 swBearDeltaRatio = barRatio;
                 swBearAbsorp = false;
-                if (lastPHBar >= 0)
+                if (lastPHBar >= sessionStartBar && lastPHBar >= 0)
                 {
                     int back = CurrentBar - lastPHBar;
                     if (back > 0 && back < CurrentBar)
@@ -443,9 +513,12 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // 10) MSS / CHoCH: rompe la estructura menor en contra del barrido.
+            bool mssNewBull = false, mssNewBear = false;
             if (swBullBar >= 0 && !swBullMss && !double.IsNaN(swBullMssLvl) && Close[0] > swBullMssLvl)
             {
                 swBullMss      = true;
+                mssNewBull     = true;
+                cntMss++;
                 swBullMssDelta = barRatio >= OfMssMinRatio;
                 if (ShowVisuals)
                     Draw.Text(this, "mssB" + CurrentBar, "MSS", 0, High[0] + 4 * TickSize, Brushes.LimeGreen);
@@ -453,6 +526,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (swBearBar >= 0 && !swBearMss && !double.IsNaN(swBearMssLvl) && Close[0] < swBearMssLvl)
             {
                 swBearMss      = true;
+                mssNewBear     = true;
+                cntMss++;
                 swBearMssDelta = barRatio <= -OfMssMinRatio;
                 if (ShowVisuals)
                     Draw.Text(this, "mssS" + CurrentBar, "MSS", 0, Low[0] - 4 * TickSize, Brushes.Red);
@@ -536,6 +611,21 @@ namespace NinjaTrader.NinjaScript.Strategies
             bool buySig  = winBull && gateBull && scoreBull >= MinScore;
             bool sellSig = winBear && gateBear && scoreBear >= MinScore;
 
+            // Embudo de diagnostico: en el momento en que el MSS confirma, se
+            // anota QUE filtro mato el setup. Es lo que te dice si el sistema
+            // no opera por la sesion, por el score o por el order flow.
+            if (mssNewBull || mssNewBear)
+            {
+                bool sc = mssNewBull ? scoreBull >= MinScore : scoreBear >= MinScore;
+                bool of = mssNewBull ? ofBullOK   : ofBearOK;
+                bool rk = mssNewBull ? riskOKBull : riskOKBear;
+                if      (!sesionOK)   cntNoSes++;
+                else if (!sc)         cntNoScore++;
+                else if (!of)         cntNoOf++;
+                else if (!rk)         cntNoRisk++;
+                else if (dayBlocked)  cntNoDia++;
+            }
+
             // 15) Cierre por fin de sesion.
             if (CloseAtSessionEnd && Position.MarketPosition != MarketPosition.Flat && !sesionOK)
             {
@@ -544,7 +634,10 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             // 16) Ejecucion.
-            if (Position.MarketPosition == MarketPosition.Flat)
+            // La entrada es a mercado sobre la serie de 1 tick: se llena en el
+            // tick siguiente, no en esta llamada. El guardia de CurrentBar evita
+            // reenviarla si la vela cierra antes de que la posicion aparezca.
+            if (Position.MarketPosition == MarketPosition.Flat && CurrentBar > lastEntryBar)
             {
                 if (buySig)       AbrirLargo(atr, usdMode, riskPts, tgtPts, slStructBull, scoreBull);
                 else if (sellSig) AbrirCorto(atr, usdMode, riskPts, tgtPts, slStructBear, scoreBear);
@@ -802,6 +895,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             tradesToday++;
+            cntIn++;
+            lastEntryBar = CurrentBar;
             if (ShowVisuals)
             {
                 Draw.ArrowUp(this, "eL" + CurrentBar, false, 0, Low[0] - 6 * TickSize, Brushes.Aqua);
@@ -839,6 +934,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
 
             tradesToday++;
+            cntIn++;
+            lastEntryBar = CurrentBar;
             if (ShowVisuals)
             {
                 Draw.ArrowDown(this, "eS" + CurrentBar, false, 0, High[0] + 6 * TickSize, Brushes.Magenta);
@@ -858,24 +955,30 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             double px = Closes[IdxTick][0];
 
+            // Se usa el precio MEDIO REAL de la posicion, no el cierre de la
+            // vela de la senal: la entrada es a mercado y se llena en el tick
+            // siguiente, asi que "breakeven" solo es breakeven de verdad si se
+            // calcula sobre lo que realmente se pago.
+            double ent = Position.AveragePrice > 0 ? Position.AveragePrice : posEntry;
+
             if (Position.MarketPosition == MarketPosition.Long)
             {
-                double trig = posEntry + BeAtR * (posEntry - posSL);
-                if (px >= trig)
+                double trig = ent + BeAtR * (ent - posSL);
+                if (px >= trig && ent > posSL)
                 {
                     beDone = true;
-                    SetStopLoss("L1", CalculationMode.Price, posEntry, false);
-                    SetStopLoss("L2", CalculationMode.Price, posEntry, false);
+                    SetStopLoss("L1", CalculationMode.Price, ent, false);
+                    SetStopLoss("L2", CalculationMode.Price, ent, false);
                 }
             }
             else
             {
-                double trig = posEntry - BeAtR * (posSL - posEntry);
-                if (px <= trig)
+                double trig = ent - BeAtR * (posSL - ent);
+                if (px <= trig && ent < posSL)
                 {
                     beDone = true;
-                    SetStopLoss("S1", CalculationMode.Price, posEntry, false);
-                    SetStopLoss("S2", CalculationMode.Price, posEntry, false);
+                    SetStopLoss("S1", CalculationMode.Price, ent, false);
+                    SetStopLoss("S2", CalculationMode.Price, ent, false);
                 }
             }
         }
@@ -911,6 +1014,8 @@ namespace NinjaTrader.NinjaScript.Strategies
             if (winBear) setup = "SHORT " + scoreBear + " | " + (swBearMss ? "MSS OK" : "MSS...")
                                  + (swBearAbsorp ? " | ABS" : "");
             sb.AppendLine("Setup     : " + setup);
+            sb.AppendLine("Embudo    : " + cntSweep + " barridos > " + cntMss
+                          + " MSS > " + cntIn + " entradas");
             sb.AppendLine("Trades hoy: " + tradesToday + (dayBlocked ? "  [BLOQUEADO]" : ""));
             sb.AppendLine("PnL hoy   : " + realizado.ToString("C0"));
 

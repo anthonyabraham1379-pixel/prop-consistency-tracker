@@ -205,6 +205,35 @@ operar en vivo sin arriesgar. Hazlo antes de cualquier cuenta real.
 
 ---
 
+### 6.6 El embudo de diagnóstico
+
+Al terminar cualquier backtest, la estrategia imprime en **New → NinjaScript
+Output** el desglose de dónde murió cada setup:
+
+```
+===== SMC ORDER FLOW MASTER - EMBUDO =====
+  Barridos detectados      : 412
+  Confirmaron MSS          : 118
+  Descartados por sesion   : 61
+  Descartados por score    : 0
+  Descartados por flujo    : 24
+  Descartados por riesgo   : 3
+  Descartados por lim.dia  : 0
+  ENTRADAS                 : 30
+==========================================
+```
+
+Esto responde en un vistazo *por qué* opera poco o mucho. Ojo con una cosa que
+salió en el análisis: con `Score mínimo = 5` y VWAP/volumen apagados, **el score
+puede no estar filtrando nada** (los filtros apagados no penalizan, así que el
+score siempre llega a 5). Si ves `Descartados por score: 0`, es eso — el sistema
+está funcionando solo con sesión + MSS + flujo. No es un error, pero conviene
+saberlo antes de subir el mínimo a 6.
+
+El mismo embudo aparece resumido en el panel del gráfico.
+
+---
+
 ## 7. Control de riesgo para prop firm
 
 Grupo `8D) Limite diario`:
@@ -236,12 +265,24 @@ Actívalos de uno en uno y mide.
   que no depende de ninguna licencia.
 - Si desactivas SMT, la estrategia carga una serie de datos menos y el
   backtest va notablemente más rápido.
+- `IsInstantiatedOnEachOptimizationIteration` está en **true** a propósito. La
+  estrategia guarda mucho estado (pivotes, CVD, setups, contadores); si se
+  reutilizara el objeto entre iteraciones, ese estado se arrastraría y
+  contaminaría el Walk-Forward. Cuesta algo de velocidad, pero los números son
+  correctos.
+- La **absorción solo se evalúa contra un swing de la misma sesión**. El CVD se
+  reinicia en cada sesión, así que comparar el de hoy contra el de ayer no
+  significa nada. Sobre tus ticks eso afecta al ~1% de los barridos.
+- El **breakeven usa el precio medio real de la posición** (`Position.AveragePrice`),
+  no el cierre de la vela de la señal. La entrada es a mercado y se llena en el
+  tick siguiente: si usaras el cierre, el "breakeven" no sería breakeven.
 
 ---
 
 ## 9. Orden sugerido de trabajo
 
 1. Compilar, aplicar en ES 1m, ver que el panel muestra delta y CVD vivos.
+   Revisa el **embudo** en la ventana Output (sección 6.6) antes que nada.
 2. Backtest de 1 mes con los defaults → anotar PF, DD, trades/semana.
 3. Repetir con `Exigir absorcion` en OFF → comparar. Así mides exactamente
    cuánto aporta el flujo real (en tus ticks fue PF 1.14 → 1.77).
