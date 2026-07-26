@@ -186,7 +186,13 @@ namespace NinjaTrader.NinjaScript.Strategies
                 // ---- 1) Sesion ----
                 UseSession   = true;
                 SesStart     = 730;
-                SesEnd       = 1400;
+                // 1100 y no 1400: sobre el ANO COMPLETO de velas de ES, la
+                // franja 1300-1500 CT dio PF 0.62 con -13,319 USD en 162
+                // senales. Cortar en 1100 sube el conjunto de PF 0.87 a 1.01.
+                // Ademas el movimiento esta en la manana (rango medio 3.4-4.0
+                // pts de 0800 a 1000 CT frente a 2.5-2.7 por la tarde).
+                // Si quieres tu ventana original, pon 1400.
+                SesEnd       = 1100;
                 UseLunchBlock= true;
                 LunchStart   = 1130;
                 LunchEnd     = 1300;

@@ -56,7 +56,7 @@ Estos son los defaults del código, iguales a tu configuración de TradingView:
 
 | Parámetro | Valor |
 |---|---|
-| Sesión | 0730–1400 CT, lunch 1130–1300 bloqueado |
+| Sesión | **0730–1100 CT**, lunch 1130–1300 bloqueado (ver sección 10) |
 | Sesgo TF mayor | ON, 60 min, EMA 50 |
 | VWAP como filtro | OFF |
 | Pivote | 4 · ATR 14 · mecha 0.5×ATR · EQ 0.25×ATR |
@@ -293,3 +293,100 @@ Actívalos de uno en uno y mide.
 6. Monte Carlo.
 7. Market Replay de 2 semanas.
 8. Recién entonces, simulada en vivo.
+
+---
+
+## 10. Prueba sobre el AÑO COMPLETO de velas (lee esto antes de operar)
+
+La calibración de la sección 5 se hizo sobre 41 días de ticks. Después corrí
+el mismo sistema sobre **el año completo de velas de ES 1m** (253 días,
+326.011 velas, jul-2025 a jul-2026). Los resultados obligan a matizar todo lo
+anterior.
+
+### 10.1 Cómo se mueve el ES después de una señal
+
+| | |
+|---|---|
+| R medio (stop estructural) | 10.2 pts = **$508** |
+| MFE mediana (a favor) | **1.61R** |
+| MAE mediana (en contra) | **1.70R** |
+
+| Objetivo | Lo alcanza | Va lo mismo en contra |
+|---|---|---|
+| 1.0R | 64.4% | 67.4% |
+| 1.5R | 51.7% | 55.3% |
+| 2.0R | 43.0% | 44.2% |
+| 3.0R | 29.6% | 26.8% |
+
+**La excursión es simétrica.** El precio se mueve prácticamente lo mismo a
+favor que en contra. Eso significa que la señal sweep→MSS **identifica
+volatilidad, no dirección**. Es la explicación de todo lo que sigue.
+
+### 10.2 El sistema completo sobre el año
+
+Con TP 1.5R, stop estructural, 1 contrato, comisión y slippage reales:
+
+| Configuración | n | WR | PF | PnL |
+|---|---|---|---|---|
+| Ventana 0730–1400 CT, base | 400 | 37% | **0.87** | −17.143 |
+| + score ≥ 5 | 303 | 36% | 0.87 | −13.213 |
+| + score ≥ 6 | 104 | 36% | 0.83 | −5.839 |
+| + score ≥ 7 | 14 | 36% | 0.44 | −2.867 |
+| solo HTF a favor | 199 | 38% | 0.90 | −6.676 |
+| solo SMT a favor | 167 | 37% | 0.88 | −6.121 |
+| **Ventana 0730–1100 CT, base** | 307 | 41% | **1.01** | +797 |
+
+**Ningún filtro del score mejora el sistema.** Subir el mínimo lo empeora.
+El score ≥ 5 no cambia nada respecto a no filtrar — confirma lo de la sección
+6.6: con VWAP y volumen apagados, el score no está filtrando.
+
+### 10.3 Por franja horaria (CT)
+
+| Franja | n | PF | PnL |
+|---|---|---|---|
+| 0730–1100 (mañana) | 307 | **1.01** | +797 |
+| 0830–1100 (núcleo) | 228 | **1.03** | +2.558 |
+| 0730–1400 | 400 | 0.87 | −17.143 |
+| **1300–1500 (tarde)** | 162 | **0.62** | **−13.319** |
+
+Por eso el default de `Fin (HHMM)` pasó de **1400 a 1100**. La tarde sangra de
+forma consistente, y el perfil de volatilidad lo respalda: el rango medio por
+vela es 3,4–4,0 pts entre las 08:00 y las 10:00 CT, frente a 2,5–2,7 por la
+tarde. Si prefieres tu ventana original, pon 1400 y lo mides tú.
+
+### 10.4 Lo que NO se pudo confirmar
+
+El proxy CLV de la absorción, aplicado al año completo, **no reproduce** la
+mejora que dio sobre los 41 días de ticks reales:
+
+| | 41 días (ticks reales) | Año completo (proxy CLV) |
+|---|---|---|
+| Base | 1.14 | 0.87 |
+| + absorción | **1.77** | **0.88** |
+
+Dos lecturas posibles, y con estos datos **no puedo distinguir cuál**:
+
+1. El proxy CLV no captura la absorción real. El CVD de verdad se construye
+   con delta tick a tick; el proxy es una aproximación por la forma de la vela.
+2. El resultado de los 41 días fue ruido de muestra.
+
+**Ese es exactamente el experimento que este código permite hacer y
+TradingView no**: correr la absorción con **delta real** sobre 6–12 meses en el
+Strategy Analyzer. Es la pregunta abierta, y es la razón de que valga la pena
+instalar esto.
+
+### 10.5 Conclusión honesta
+
+Sobre el año completo, medido con comisión y slippage reales, **el sistema base
+no tiene edge en ES 1m**: PF entre 0.87 y 1.03 según la ventana. El único
+resultado prometedor (la absorción sobre ticks reales) está **sin confirmar**
+fuera de una muestra de 41 días.
+
+**No lleves esto a una cuenta real todavía.** El orden correcto es:
+
+1. Correr en NT8 el A/B de la absorción con **delta real** sobre 6+ meses.
+2. Si el PF sube de forma consistente en Walk-Forward → hay algo, y entonces se
+   afina.
+3. Si no sube → el sistema es ruido con buena estética, y toca cambiar de
+   concepto (la reversión a VWAP de 2SD fue lo único que dio PF ~1.2 estable
+   sobre el año).
