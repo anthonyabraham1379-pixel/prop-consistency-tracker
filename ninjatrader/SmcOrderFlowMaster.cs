@@ -125,12 +125,14 @@ namespace NinjaTrader.NinjaScript.Strategies
         private double swBullExt, swBullMssLvl;
         private double swBullDeltaRatio;
         private bool   swBullVol, swBullSmt, swBullEq, swBullMss, swBullAbsorp, swBullMssDelta;
+        private int    swBullVolPts, swBullMssVolPts;
 
         // ---------- maquina de setup: barrido bajista ----------
         private int    swBearBar = -1;
         private double swBearExt, swBearMssLvl;
         private double swBearDeltaRatio;
         private bool   swBearVol, swBearSmt, swBearEq, swBearMss, swBearAbsorp, swBearMssDelta;
+        private int    swBearVolPts, swBearMssVolPts;
 
         // ---------- gestion de la posicion ----------
         private double posEntry, posSL, posTP1, posTP2;
@@ -216,9 +218,17 @@ namespace NinjaTrader.NinjaScript.Strategies
                 SmtInstrument  = "NQ ##-##";
 
                 // ---- 5) Volumen ----
-                UseVolume    = false;
+                // El volumen pasa a CONFIRMAR POR PUNTOS, nunca a prohibir.
+                // Medido sobre el ano completo de ES en 5m, por terciles de
+                // volumen del barrido: bajo PF 0.95 / medio 1.08 / ALTO 1.43.
+                // El tercil bajo no es catastrofico, asi que se pondera en vez
+                // de filtrar. En 15m el efecto es ruido (1.00/0.87/1.18).
+                UseVolume    = true;
                 VolLen       = 20;
-                VolMult      = 1.3;
+                VolMult      = 1.3;      // >= 1.3x la media -> +1 punto
+                VolMult2     = 2.0;      // >= 2.0x la media -> +2 puntos
+                UseMssVolume = true;     // +1 mas si el MSS tambien trae volumen
+                VolMssMult   = 1.3;
 
                 // ---- 5C) Order flow ----
                 DeltaSrc          = SmcDeltaSource.ReglaDelTick;
@@ -374,6 +384,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             swBullExt = swBullMssLvl = swBullDeltaRatio = 0;
             swBearExt = swBearMssLvl = swBearDeltaRatio = 0;
             swBullVol = swBullSmt = swBullEq = swBullMss = swBullAbsorp = swBullMssDelta = false;
+            swBullVolPts = swBullMssVolPts = swBearVolPts = swBearMssVolPts = 0;
             swBearVol = swBearSmt = swBearEq = swBearMss = swBearAbsorp = swBearMssDelta = false;
 
             posEntry = posSL = posTP1 = posTP2 = 0;
@@ -463,7 +474,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             bool htfBear = Close[0] < emaHtf[0];
             bool vwBull  = Close[0] > vwapVal;
             bool vwBear  = Close[0] < vwapVal;
-            bool volOK   = Volume[0] >= volAvg[0] * VolMult;
+            double volRat = volAvg[0] > 0 ? Volume[0] / volAvg[0] : 0.0;
+            bool volOK    = volRat >= VolMult;
+            int  volPts   = !UseVolume ? 0 : (volRat >= VolMult2 ? 2 : (volRat >= VolMult ? 1 : 0));
 
             // 5) Pivotes propios (confirmados con retardo, no repintan).
             ActualizarPivotes();
@@ -497,6 +510,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 swBullExt        = Low[0];
                 swBullMssLvl     = double.IsNaN(minorPH) ? High[0] : minorPH;
                 swBullVol        = volOK;
+                swBullVolPts     = volPts;
+                swBullMssVolPts  = 0;
                 swBullSmt        = SmtDisponible() && !double.IsNaN(corrPL) && Lows[IdxSmt][0] > corrPL;
                 swBullEq         = eqlTag;
                 swBullMss        = false;
@@ -526,6 +541,8 @@ namespace NinjaTrader.NinjaScript.Strategies
                 swBearExt        = High[0];
                 swBearMssLvl     = double.IsNaN(minorPL) ? Low[0] : minorPL;
                 swBearVol        = volOK;
+                swBearVolPts     = volPts;
+                swBearMssVolPts  = 0;
                 swBearSmt        = SmtDisponible() && !double.IsNaN(corrPH) && Highs[IdxSmt][0] < corrPH;
                 swBearEq         = eqhTag;
                 swBearMss        = false;
@@ -546,8 +563,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             bool mssNewBull = false, mssNewBear = false;
             if (swBullBar >= 0 && !swBullMss && !double.IsNaN(swBullMssLvl) && Close[0] > swBullMssLvl)
             {
-                swBullMss      = true;
-                mssNewBull     = true;
+                swBullMss       = true;
+                swBullMssVolPts = (UseVolume && UseMssVolume && volRat >= VolMssMult) ? 1 : 0;
+                mssNewBull      = true;
                 cntMss++;
                 swBullMssDelta = barRatio >= OfMssMinRatio;
                 if (ShowVisuals)
@@ -555,8 +573,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             if (swBearBar >= 0 && !swBearMss && !double.IsNaN(swBearMssLvl) && Close[0] < swBearMssLvl)
             {
-                swBearMss      = true;
-                mssNewBear     = true;
+                swBearMss       = true;
+                swBearMssVolPts = (UseVolume && UseMssVolume && volRat >= VolMssMult) ? 1 : 0;
+                mssNewBear      = true;
                 cntMss++;
                 swBearMssDelta = barRatio <= -OfMssMinRatio;
                 if (ShowVisuals)
@@ -585,14 +604,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             int scoreBull = 2
                 + (!UseHtf         || htfBull   ? 1 : 0)
                 + (!UseVwapFilter  || vwBull    ? 1 : 0)
-                + (!UseVolume      || swBullVol ? 1 : 0)
+                + (UseVolume ? swBullVolPts + swBullMssVolPts : 1)
                 + (!smtAvail       || swBullSmt ? 1 : 0)
                 + (swBullEq ? 1 : 0);
 
             int scoreBear = 2
                 + (!UseHtf         || htfBear   ? 1 : 0)
                 + (!UseVwapFilter  || vwBear    ? 1 : 0)
-                + (!UseVolume      || swBearVol ? 1 : 0)
+                + (UseVolume ? swBearVolPts + swBearMssVolPts : 1)
                 + (!smtAvail       || swBearSmt ? 1 : 0)
                 + (swBearEq ? 1 : 0);
 
@@ -1053,6 +1072,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             sb.AppendLine("Sesion    : " + (sesionOK ? "ACTIVA" : "FUERA"));
             sb.AppendLine("Sesgo HTF : " + (htfBull ? "Alcista" : "Bajista"));
             sb.AppendLine("VWAP      : " + (vwBull ? "Encima" : "Debajo"));
+            int vPts = swBullBar >= 0 ? swBullVolPts + swBullMssVolPts
+                     : swBearBar >= 0 ? swBearVolPts + swBearMssVolPts : 0;
+            sb.AppendLine("Volumen   : " + (UseVolume ? "+" + vPts + " pt" : "Off"));
             sb.AppendLine("Flujo     : " + (DeltaSrc.ToString()));
             sb.AppendLine("Delta vela: " + (barBuy - barSell).ToString("N0")
                           + "  (" + (barRatio * 100).ToString("N0") + "%)");
@@ -1178,18 +1200,32 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         #region 5) Volumen
         [NinjaScriptProperty]
-        [Display(Name = "Usar volumen", Order = 1, GroupName = "5) Volumen")]
+        [Display(Name = "Usar volumen", Order = 1, GroupName = "5) Volumen (suma puntos, no filtra)")]
         public bool UseVolume { get; set; }
 
         [NinjaScriptProperty]
         [Range(2, 200)]
-        [Display(Name = "Media de volumen", Order = 2, GroupName = "5) Volumen")]
+        [Display(Name = "Media de volumen", Order = 2, GroupName = "5) Volumen (suma puntos, no filtra)")]
         public int VolLen { get; set; }
 
         [NinjaScriptProperty]
         [Range(0.5, 10.0)]
-        [Display(Name = "Volumen minimo (x media)", Order = 3, GroupName = "5) Volumen")]
+        [Display(Name = "Volumen ALTO del barrido (x media) = +1", Order = 3, GroupName = "5) Volumen (suma puntos, no filtra)")]
         public double VolMult { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0.5, 20.0)]
+        [Display(Name = "Volumen MUY ALTO del barrido (x media) = +2", Order = 4, GroupName = "5) Volumen (suma puntos, no filtra)")]
+        public double VolMult2 { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Sumar el volumen de la vela del MSS", Order = 5, GroupName = "5) Volumen (suma puntos, no filtra)")]
+        public bool UseMssVolume { get; set; }
+
+        [NinjaScriptProperty]
+        [Range(0.5, 20.0)]
+        [Display(Name = "Volumen alto del MSS (x media) = +1", Order = 6, GroupName = "5) Volumen (suma puntos, no filtra)")]
+        public double VolMssMult { get; set; }
         #endregion
 
         #region 5C) Order Flow
@@ -1263,8 +1299,11 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int WindowBars { get; set; }
 
         [NinjaScriptProperty]
-        [Range(2, 10)]
-        [Display(Name = "Score minimo (7 base, 10 con order flow)", Order = 2, GroupName = "8) Senal y riesgo")]
+        [Range(2, 13)]
+        [Display(Name = "Score minimo (9 base, 12 con order flow)", Order = 2, GroupName = "8) Senal y riesgo",
+                 Description = "El volumen aporta hasta 3 puntos (2 del barrido + 1 del MSS). Medido sobre el "
+                             + "ano completo en 5m, subir el umbral NO mejora el PF (queda plano en 1.24-1.25) "
+                             + "y solo recorta operaciones: deja 5 salvo que midas otra cosa.")]
         public int MinScore { get; set; }
 
         [NinjaScriptProperty]
