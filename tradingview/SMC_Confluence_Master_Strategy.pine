@@ -203,14 +203,30 @@ if not na(cplv)
 smtBearNow = useSMT and sweepBear and corrOK and not na(corrPH) and corrH < corrPH
 smtBullNow = useSMT and sweepBull and corrOK and not na(corrPL) and corrL > corrPL
 
-// ========== 5) VOLUMEN ==========
-grpV = "5) Volumen"
-useVol  = input.bool(false, "Usar volumen como confluencia", group=grpV)
-volLen  = input.int(20, "Media de volumen", group=grpV)
-volMult = input.float(1.3, "Volumen minimo del barrido (x media)", step=0.1, group=grpV)
+// ========== 5) VOLUMEN (CONFIRMA POR PUNTOS, NUNCA PROHIBE) ==========
+// Medido sobre el ano completo de ES en 5m, por terciles de volumen del
+// barrido relativo a la media local:
+//     volumen bajo   n48  WR 44%  PF 0.95
+//     volumen medio  n48  WR 42%  PF 1.08
+//     volumen ALTO   n49  WR 51%  PF 1.43
+// Progresion limpia, pero el tercil bajo NO es catastrofico (0.95). Por eso
+// el volumen PONDERA en vez de filtrar: suma puntos al score y deja que el
+// resto de confluencias decidan. En 15m el efecto es ruido (1.00/0.87/1.18),
+// asi que este modulo rinde sobre todo en 1m-5m.
+grpV = "5) Volumen (suma puntos, no filtra)"
+useVol   = input.bool(true, "Usar volumen como confluencia", group=grpV)
+volLen   = input.int(20, "Media de volumen", group=grpV)
+volMult  = input.float(1.3, "Volumen ALTO del barrido (x media) = +1", step=0.1, group=grpV)
+volMult2 = input.float(2.0, "Volumen MUY ALTO del barrido (x media) = +2", step=0.1, group=grpV)
+volMssOn = input.bool(true, "Sumar tambien el volumen de la vela del MSS", group=grpV)
+volMssM  = input.float(1.3, "Volumen alto del MSS (x media) = +1", step=0.1, group=grpV)
+
 volSma  = ta.sma(nz(volume), volLen)
-volOKn  = nz(volume) >= volSma * volMult
-volOKp  = nz(volume[1]) >= volSma[1] * volMult
+volRat  = volSma > 0 ? nz(volume) / volSma : 0.0
+volRatP = nz(volSma[1]) > 0 ? nz(volume[1]) / volSma[1] : 0.0
+f_volPts(_r) => not useVol ? 0 : _r >= volMult2 ? 2 : _r >= volMult ? 1 : 0
+volOKn  = volRat  >= volMult
+volOKp  = volRatP >= volMult
 
 // ========== 5B) ORDER FLOW (delta comprador/vendedor en el sweep) ==========
 // Filtro validado sobre ticks reales de ES: exigir que el delta del sweep
@@ -319,7 +335,7 @@ if not na(mpl)
 grpX = "8) Senal y riesgo"
 winBars  = input.int(7, "Ventana max. tras el barrido (velas)", minval=3, group=grpX)
 reqFVG   = input.bool(false, "Exigir retorno a FVG para entrar (estricto)", group=grpX)
-minScore = input.int(5, "Score minimo (max 7)", minval=2, maxval=7, group=grpX)
+minScore = input.int(5, "Score minimo (max 9, o 10 con order flow)", minval=2, maxval=10, group=grpX, tooltip="El volumen aporta hasta 3 puntos (2 del barrido + 1 del MSS). Con 5 el sistema opera como antes; sube a 6-7 para exigir confirmacion de volumen.")
 slBuf    = input.float(0.5, "Colchon del SL (x ATR)", step=0.1, group=grpX)
 tp1R     = input.float(1.5, "TP1 (multiplo de R)", step=0.1, group=grpX)
 tp2R     = input.float(2.5, "TP2 (multiplo de R)", step=0.1, group=grpX)
@@ -366,6 +382,8 @@ var float swBearMssLvl = na
 var float swBearOF = na
 var float swBearCLV = na
 var bool  swBearVol = false
+var int   swBearVolPts = 0
+var int   swBearMssVolPts = 0
 var bool  swBearSMT = false
 var bool  swBearEQ  = false
 var bool  swBearMss = false
@@ -378,6 +396,8 @@ var float swBullMssLvl = na
 var float swBullOF = na
 var float swBullCLV = na
 var bool  swBullVol = false
+var int   swBullVolPts = 0
+var int   swBullMssVolPts = 0
 var bool  swBullSMT = false
 var bool  swBullEQ  = false
 var bool  swBullMss = false
@@ -399,6 +419,8 @@ if sweepBear
     swBearBar := bar_index
     swBearExt := sweepBear2 ? math.max(high, high[1]) : high
     swBearVol := volOKn or (sweepBear2 and volOKp)
+    swBearVolPts := f_volPts(sweepBear2 ? math.max(volRat, volRatP) : volRat)
+    swBearMssVolPts := 0
     swBearSMT := smtBearNow
     swBearEQ  := eqhTag
     swBearMss := false
@@ -412,6 +434,8 @@ if sweepBull
     swBullBar := bar_index
     swBullExt := sweepBull2 ? math.min(low, low[1]) : low
     swBullVol := volOKn or (sweepBull2 and volOKp)
+    swBullVolPts := f_volPts(sweepBull2 ? math.max(volRat, volRatP) : volRat)
+    swBullMssVolPts := 0
     swBullSMT := smtBullNow
     swBullEQ  := eqlTag
     swBullMss := false
@@ -430,11 +454,13 @@ mssBullHit = not na(swBullBar) and not swBullMss and not na(swBullMssLvl) and cl
 mssBearHit = not na(swBearBar) and not swBearMss and not na(swBearMssLvl) and close < swBearMssLvl
 if mssBullHit
     swBullMss := true
+    swBullMssVolPts := (useVol and volMssOn and volRat >= volMssM) ? 1 : 0
     swBullDisp := math.abs(close - open) >= dispMin * atr
     if showMss and barstate.isconfirmed
         label.new(bar_index, high, "MSS", style=label.style_label_down, color=cMssUp, textcolor=color.white, size=size.tiny)
 if mssBearHit
     swBearMss := true
+    swBearMssVolPts := (useVol and volMssOn and volRat >= volMssM) ? 1 : 0
     swBearDisp := math.abs(close - open) >= dispMin * atr
     if showMss and barstate.isconfirmed
         label.new(bar_index, low, "MSS", style=label.style_label_up, color=cMssDn, textcolor=color.white, size=size.tiny)
@@ -445,15 +471,17 @@ ofBullYes = ofFuente == "Vela (backtest)" ? (not na(swBullCLV) and swBullCLV >= 
 ofBearYes = ofFuente == "Vela (backtest)" ? (not na(swBearCLV) and swBearCLV >= clvMin) : (not na(swBearOF) and swBearOF <= -umbralOF)
 sHtfB = not useHTF or htfBull ? 1 : 0
 sVwB  = not useVW or vwBull ? 1 : 0
-sVolB = not useVol or swBullVol ? 1 : 0
+sVolB = swBullVolPts + swBullMssVolPts
 sSmtB = not useSMT or not corrOK or swBullSMT ? 1 : 0
-scoreBull = 2 + sHtfB + sVwB + sVolB + sSmtB + (swBullEQ ? 1 : 0) + (scoreOF and ofBullYes ? 1 : 0)
+// Base 6 (barrido 2 + HTF + VWAP + SMT + EQ) y el volumen anade hasta 3.
+// Si el volumen esta apagado suma 1 fijo para no cambiar el umbral.
+scoreBull = 2 + sHtfB + sVwB + sSmtB + (swBullEQ ? 1 : 0) + (useVol ? sVolB : 1) + (scoreOF and ofBullYes ? 1 : 0)
 
 sHtfS = not useHTF or htfBear ? 1 : 0
 sVwS  = not useVW or vwBear ? 1 : 0
-sVolS = not useVol or swBearVol ? 1 : 0
+sVolS = swBearVolPts + swBearMssVolPts
 sSmtS = not useSMT or not corrOK or swBearSMT ? 1 : 0
-scoreBear = 2 + sHtfS + sVwS + sVolS + sSmtS + (swBearEQ ? 1 : 0) + (scoreOF and ofBearYes ? 1 : 0)
+scoreBear = 2 + sHtfS + sVwS + sSmtS + (swBearEQ ? 1 : 0) + (useVol ? sVolS : 1) + (scoreOF and ofBearYes ? 1 : 0)
 
 // Gate de order flow: si useOF y NO esta en modo score, es requisito duro.
 ofBullOK = not useOF or scoreOF or ofBullYes
@@ -657,7 +685,7 @@ if entLong and strategy.position_size == 0
         zoneT1 := line.new(bar_index, posTP1, bar_index + 1, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
         label.new(bar_index, posSL, "LONG", style=label.style_label_up, color=color.new(color.green, 15), textcolor=color.white, size=size.tiny)
     aTxtB = "SMC COMPRA" + (buySig ? "" : " CONT") + " " + syminfo.ticker + " (" + timeframe.period + "m)"
-    aTxtB := aTxtB + " | Score " + str.tostring(scoreBull) + "/7"
+    aTxtB := aTxtB + " | Score " + str.tostring(scoreBull)
     aTxtB := aTxtB + " | E " + f_fmt(close) + " SL " + f_fmt(posSL)
     aTxtB := aTxtB + " TP1 " + f_fmt(posTP1) + " TP2 " + f_fmt(posTP2)
     alert(aTxtB, alert.freq_once_per_bar_close)
@@ -685,7 +713,7 @@ if entShort and strategy.position_size == 0 and not entLong
         zoneT1 := line.new(bar_index, posTP1, bar_index + 1, posTP1, color=color.new(color.green, 30), style=line.style_dashed)
         label.new(bar_index, posSL, "SHORT", style=label.style_label_down, color=color.new(color.red, 15), textcolor=color.white, size=size.tiny)
     aTxtS = "SMC VENTA" + (sellSig ? "" : " CONT") + " " + syminfo.ticker + " (" + timeframe.period + "m)"
-    aTxtS := aTxtS + " | Score " + str.tostring(scoreBear) + "/7"
+    aTxtS := aTxtS + " | Score " + str.tostring(scoreBear)
     aTxtS := aTxtS + " | E " + f_fmt(close) + " SL " + f_fmt(posSL)
     aTxtS := aTxtS + " TP1 " + f_fmt(posTP1) + " TP2 " + f_fmt(posTP2)
     alert(aTxtS, alert.freq_once_per_bar_close)
@@ -744,12 +772,12 @@ if showTbl and barstate.islast
     if winBull
         mTx = swBullMss ? "MSS OK" : "MSS..."
         fTx = reqFVG ? (inBullFvg ? " | FVG OK" : " | FVG...") : ""
-        setupTxt := "LONG " + str.tostring(scoreBull) + "/7 | " + mTx + fTx
+        setupTxt := "LONG " + str.tostring(scoreBull) + " | " + mTx + fTx
         setupCol := cUp
     if winBear
         mTx = swBearMss ? "MSS OK" : "MSS..."
         fTx = reqFVG ? (inBearFvg ? " | FVG OK" : " | FVG...") : ""
-        setupTxt := "SHORT " + str.tostring(scoreBear) + "/7 | " + mTx + fTx
+        setupTxt := "SHORT " + str.tostring(scoreBear) + " | " + mTx + fTx
         setupCol := cDn
     bullNewer = na(lastBearSweepBar) or (not na(lastBullSweepBar) and lastBullSweepBar > lastBearSweepBar)
     lastSwTxt = "-"
@@ -776,8 +804,11 @@ if showTbl and barstate.islast
     table.cell(tbl, 1, 2, htfTxt, text_color=htfCol, text_size=size.tiny)
     table.cell(tbl, 0, 3, "VWAP", text_color=color.white, text_size=size.tiny)
     table.cell(tbl, 1, 3, vwBull ? "Encima" : "Debajo", text_color=vwBull ? cUp : cDn, text_size=size.tiny)
+    vPtsTxt = not useVol ? "Off" : str.tostring(volRat, "#.0") + "x -> +"
+    vPtsAct = winBull ? swBullVolPts + swBullMssVolPts : winBear ? swBearVolPts + swBearMssVolPts : f_volPts(volRat)
+    vPtsTxt := not useVol ? "Off" : vPtsTxt + str.tostring(vPtsAct) + " pt"
     table.cell(tbl, 0, 4, "Volumen", text_color=color.white, text_size=size.tiny)
-    table.cell(tbl, 1, 4, volOKn ? "Alto" : "Normal", text_color=volOKn ? cUp : cNe, text_size=size.tiny)
+    table.cell(tbl, 1, 4, vPtsTxt, text_color=vPtsAct >= 2 ? cUp : vPtsAct == 1 ? cWa : cNe, text_size=size.tiny)
     table.cell(tbl, 0, 5, "SMT", text_color=color.white, text_size=size.tiny)
     table.cell(tbl, 1, 5, smtTxt, text_color=smtCol, text_size=size.tiny)
     table.cell(tbl, 0, 6, "Ult. barrido", text_color=color.white, text_size=size.tiny)
