@@ -195,3 +195,87 @@ Lo cual tiene una consecuencia que encaja con este mismo proyecto: si la
 señal de entrada no es donde está el margen, entonces está en la **gestión**
 — tamaño de posición, límite diario, consistencia, no romper las reglas de la
 prop firm. Que es exactamente lo que hace la app de este repositorio.
+
+---
+
+## 8. Por que en TradingView si y en NinjaTrader no
+
+La pregunta mas util de todo el proyecto. Medida, no razonada.
+
+### Los sospechosos habituales no explican nada
+
+Misma logica SMC, mismo instrumento, mismo ano, cambiando SOLO los supuestos
+de ejecucion:
+
+| Supuesto | TradingView | NinjaTrader | Diferencia |
+|---|---|---|---|
+| Entrada en cierre vs apertura siguiente | PF 0.95 | PF 0.95 | 0.00 |
+| Intrabar optimista vs pesimista | PF 0.92 | PF 0.92 | 0.00 |
+| Slippage 1 tick vs 0 | 0.95 -> 1.00 | — | pequena |
+
+`process_orders_on_close=true` es el sospechoso clasico y aqui **no vale
+nada**. Conviene saberlo para no perder tiempo persiguiendolo.
+
+### Lo que si lo explica
+
+Barrido del objetivo, misma logica, 5 minutos, ano completo:
+
+```
+TP 1.0R  PF 0.93     TP 2.5R  PF 0.95
+TP 1.5R  PF 1.11     TP 3.0R  PF 0.99
+TP 2.0R  PF 1.01
+```
+
+Media 1.00 sin estructura. **Cuando hay ventaja real esa curva tiene forma.**
+
+Mes a mes del "mejor" caso (5m, TP 1.5R, PF 1.11):
+
+```
+2025-09  -4,626     2026-02   +4,713
+2025-10  -1,594     2026-03  +14,840  <<<
+2026-01  -1,886     2026-04   -6,321
+2026-06  -2,823     2026-07     -420
+
+meses positivos: 7 de 13     total +9,259
+quitando los 2 mejores meses: -10,294 USD
+```
+
+Marzo de 2026 aporta mas que la ganancia de todo el ano.
+
+**Conclusion: TradingView no miente en la ejecucion. Ensena una ventana que
+contiene el tramo bueno.** Sobre el ano entero el resultado se promedia a
+PF 1.00. Dos implementaciones independientes (el port de NinjaTrader y el
+backtester de Python) coinciden en ~1.0; la que se sale de la fila es TV.
+
+### El protocolo que hay que aplicar SIEMPRE antes de creerse un backtest
+
+1. **Barrido del parametro principal.** Si el PF salta sin estructura
+   alrededor de 1.0, es ruido con un ganador de loteria.
+2. **Mes a mes.** Contar meses positivos y quitar los dos mejores.
+3. **Quitar las N mejores operaciones.** Si el resultado se desmorona
+   quitando 5, no hay sistema.
+4. **Tercios cronologicos.** Los tres tienen que ser positivos.
+
+### El unico candidato que aprueba las cuatro
+
+Esqueleto de precio de InstitutionalOrderFlow (sweep sobre pools de 5m,
+nivel institucional, mecha de rechazo, contexto de 15m, objetivo 3R), 272
+operaciones, PF 1.45:
+
+```
+quitando las 5 mejores operaciones : +13,056 (de +19,504)
+quitando las 10 mejores            :  +7,545
+operacion mas grande               : 7.6% del total
+
+primer tercio  PF 1.72 | segundo tercio PF 1.37 | ultimo tercio PF 1.32
+
+objetivo 2.0R PF 1.50   3.0R PF 1.45   4.0R PF 1.55
+objetivo 2.5R PF 1.47   3.5R PF 1.49   5.0R PF 1.54
+```
+
+Sensibilidad **plana** entre 2R y 5R, tres tercios positivos, no depende de
+ninguna operacion. Es lo contrario del perfil del SMC.
+
+Aviso que sigue vigente: el backtester de Python corre sistematicamente
+optimista frente a NinjaTrader (dijo 1.27 donde se midio 0.87; 1.31 donde se
+midio 1.04). Lo esperable en plataforma es **1.10-1.25**, no 1.45.
