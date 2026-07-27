@@ -16,11 +16,21 @@
 //    Stacked imbalance 15 | Delta 15          | Subasta terminada 10
 //
 //  Sweep, zona de perfil, delta, mecha de rechazo y contexto de 15m son
-//  PUERTAS DURAS: sin ellas no se evalua nada. El suelo que dejan es 55.
-//  Por eso con umbral 85 hacen falta dos de los tres opcionales (y en la
-//  practica la absorcion pasa a ser casi obligatoria), mientras que con
-//  70 basta con uno. El umbral por defecto aqui es 70 para que el
-//  backtest tenga una muestra medible; subelo despues si quieres.
+//  PUERTAS DURAS: sin ellas no se evalua nada. El suelo que dejan es 55,
+//  asi que el umbral decide cuantos OPCIONALES hacen falta:
+//    umbral 65 -> basta con subasta terminada (10)
+//    umbral 70 -> hace falta imbalance (15) o absorcion (20)
+//    umbral 85 -> hacen falta DOS de los tres
+//
+//  AVISO APRENDIDO A GOLPES (primer backtest: 2 operaciones en 7 meses).
+//  AbsorcionRangoTicks tiene que ser MAYOR que AtrMinimoTicks. Si la vela
+//  de entrada debe medir 8 ticks pero la ventana de absorcion solo tolera
+//  6, esa misma vela rompe la ventana y resetea el contador: la absorcion
+//  no puede activarse NUNCA en las velas que pasan el filtro de rango.
+//  Con eso el unico camino al umbral quedaba en 3 imbalances apiladas en
+//  una vela de 1 minuto, que practicamente no existen. Medido sobre el
+//  ano de ES, las puertas de precio dejaban 1.769 candidatas (6,75 al
+//  dia): el mercado daba setups de sobra, el fallo era aritmetico.
 //
 //  GESTION
 //  Objetivo lejano (3R) para dejar correr al ganador, parcial opcional
@@ -416,6 +426,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         // ---------- diagnostico (embudo) ----------
         private int nBarras, nFiltro, nSweep, nPerfil, nDelta, nCvd, nMecha, nContexto, nScore, nSenal;
+        private int nAbs, nImb, nSub;          // cuantas veces dispara cada opcional
+        private bool embudoVolcado = false;
         private readonly List<int> scoresVistos = new List<int>();
 
         // ===============================================================
@@ -458,7 +470,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // --- 4) Imbalances ---
                 RatioImbalance = 3.0;
-                MinImbalances  = 3;
+                MinImbalances  = 2;   // 3 apiladas en 1m es casi inexistente
 
                 // --- 5) Delta ---
                 DeltaMinimoPct       = 0.15;
@@ -467,11 +479,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // --- 6) Absorcion ---
                 AbsorcionVelas      = 3;
-                AbsorcionRangoTicks = 6;
+                AbsorcionRangoTicks = 16;  // debe ser MAYOR que AtrMinimoTicks
                 AbsorcionDeltaMin   = 0.25;
 
                 // --- 7) Score ---
-                UmbralScore  = 70;
+                UmbralScore  = 65;
                 PtsSweep     = 20; PtsPerfil = 20; PtsAbsorcion = 20;
                 PtsImbalance = 15; PtsDelta  = 15; PtsSubasta   = 10;
 
@@ -524,7 +536,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.Terminated)
             {
-                if (ImprimirEmbudo) VolcarEmbudo();
+                if (ImprimirEmbudo && !embudoVolcado) { VolcarEmbudo(); embudoVolcado = true; }
             }
         }
 
@@ -542,6 +554,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             pnlInicioDia = 0; diaBloqueado = false;
             nBarras = nFiltro = nSweep = nPerfil = nDelta = nCvd = 0;
             nMecha = nContexto = nScore = nSenal = 0;
+            nAbs = nImb = nSub = 0; embudoVolcado = false;
             scoresVistos.Clear();
         }
 
@@ -607,6 +620,11 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             // ---------- limites diarios ----------
             if (RevisarLimitesDia()) return;
+
+            // El Output de State.Terminated no siempre llega a verse en el
+            // Strategy Analyzer, asi que lo volcamos tambien al llegar al final.
+            if (ImprimirEmbudo && !embudoVolcado && CurrentBar >= Bars.Count - 2)
+            { VolcarEmbudo(); embudoVolcado = true; }
 
             nBarras++;
             if (!PasaFiltros(hmm, volRatio)) return;
@@ -866,10 +884,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // --- 3) ABSORCION (20) ---
                 bool absorcionOK = HayAbsorcion(dir);
+                if (absorcionOK) nAbs++;
 
                 // --- 4) STACKED IMBALANCE (15) ---
                 int imb = dir == IofDir.Largo ? fp.ImbCompra : fp.ImbVenta;
                 bool imbalanceOK = imb >= MinImbalances;
+                if (imbalanceOK) nImb++;
 
                 // --- 5) DELTA (15) ---
                 bool deltaOK = signo * fp.DeltaPct >= DeltaMinimoPct;
@@ -887,6 +907,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // --- 6) SUBASTA TERMINADA (10) ---
                 bool subastaOK = dir == IofDir.Largo ? fp.SubastaTerminadaAbajo : fp.SubastaTerminadaArriba;
+                if (subastaOK) nSub++;
 
                 // --- 7) RECHAZO DEL NIVEL ---
                 double rango = Math.Max(High[0] - Low[0], TickSize);
@@ -1023,6 +1044,14 @@ namespace NinjaTrader.NinjaScript.Strategies
             Print("  + contexto 15m    : " + nContexto);
             Print("  llegan al score   : " + nScore);
             Print("  SUPERAN el umbral : " + nSenal);
+            Print("  --- de los que llegan al score, cuantos activan cada opcional ---");
+            Print("    absorcion  (20 pts): " + nAbs);
+            Print("    imbalance  (15 pts): " + nImb);
+            Print("    subasta    (10 pts): " + nSub);
+            if (AbsorcionRangoTicks <= AtrMinimoTicks)
+                Print("  *** AVISO: AbsorcionRangoTicks (" + AbsorcionRangoTicks
+                      + ") <= AtrMinimoTicks (" + AtrMinimoTicks + "). La vela que pasa el "
+                      + "filtro de rango rompe la ventana de absorcion: nunca se activara. ***");
             if (scoresVistos.Count > 0)
             {
                 int[] cortes = { 55, 65, 70, 75, 80, 85, 90, 100 };
@@ -1130,7 +1159,10 @@ namespace NinjaTrader.NinjaScript.Strategies
         public int AbsorcionVelas { get; set; }
 
         [NinjaScriptProperty] [Range(1, 100)]
-        [Display(Name = "Rango de absorcion (ticks)", Order = 2, GroupName = "6) Absorcion")]
+        [Display(Name = "Rango de absorcion (ticks)", Order = 2, GroupName = "6) Absorcion",
+                 Description = "Tiene que ser MAYOR que 'Rango minimo de vela'. Si no, la vela "
+                             + "que pasa el filtro de rango rompe la ventana y la absorcion "
+                             + "no se activa nunca.")]
         public int AbsorcionRangoTicks { get; set; }
 
         [NinjaScriptProperty] [Range(0.0, 1.0)]
@@ -1142,7 +1174,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty] [Range(0, 100)]
         [Display(Name = "Umbral de score", Order = 1, GroupName = "7) Score",
                  Description = "Puertas duras (sweep, perfil, delta, mecha, contexto) dejan un "
-                             + "suelo de 55. Con 85 hacen falta 2 de los 3 opcionales; con 70, uno.")]
+                             + "suelo de 55. 65 = basta subasta terminada; 70 = hace falta "
+                             + "imbalance o absorcion; 85 = hacen falta dos de los tres.")]
         public int UmbralScore { get; set; }
 
         [NinjaScriptProperty] [Range(0, 100)]
