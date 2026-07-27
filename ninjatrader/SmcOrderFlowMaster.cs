@@ -139,6 +139,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         // ---------- embudo de diagnostico ----------
         private int cntSweep, cntMss, cntIn;
+        private bool embudoImpreso = false;
         private int cntNoSes, cntNoScore, cntNoOf, cntNoRisk, cntNoDia;
 
         // ---------- control diario ----------
@@ -320,22 +321,35 @@ namespace NinjaTrader.NinjaScript.Strategies
             }
             else if (State == State.Terminated)
             {
-                // Embudo: te dice QUE filtro esta matando los setups. Si ves
-                // muchos barridos y pocas entradas, aqui esta el motivo exacto.
-                if (cntSweep > 0)
-                {
-                    Print("===== SMC ORDER FLOW MASTER - EMBUDO =====");
-                    Print("  Barridos detectados      : " + cntSweep);
-                    Print("  Confirmaron MSS          : " + cntMss);
-                    Print("  Descartados por sesion   : " + cntNoSes);
-                    Print("  Descartados por score    : " + cntNoScore);
-                    Print("  Descartados por flujo    : " + cntNoOf);
-                    Print("  Descartados por riesgo   : " + cntNoRisk);
-                    Print("  Descartados por lim.dia  : " + cntNoDia);
-                    Print("  ENTRADAS                 : " + cntIn);
-                    Print("==========================================");
-                }
+                ImprimirEmbudo();
             }
+        }
+
+        /// <summary>
+        /// Embudo de diagnostico. Se llama desde la ultima vela Y desde
+        /// State.Terminated: depender solo de Terminated resultaba fragil,
+        /// segun el modo en que corras la estrategia no siempre se veia.
+        /// </summary>
+        private void ImprimirEmbudo()
+        {
+            if (embudoImpreso || cntSweep == 0) return;
+            embudoImpreso = true;
+            Print("===== SMC ORDER FLOW MASTER - EMBUDO =====");
+            Print("  Instrumento / TF         : " + Instrument.MasterInstrument.Name
+                  + " " + BarsPeriod.Value + " " + BarsPeriod.BarsPeriodType);
+            Print("  Serie de 1 tick          : " + (UsarSerieTick ? "SI (order flow activo)"
+                                                                   : "NO (modo rapido)"));
+            Print("  Ventana                  : " + SesStart + "-" + SesEnd
+                  + " (offset a CT " + CtOffsetHours + ")");
+            Print("  Barridos detectados      : " + cntSweep);
+            Print("  Confirmaron MSS          : " + cntMss);
+            Print("  Descartados por sesion   : " + cntNoSes);
+            Print("  Descartados por score    : " + cntNoScore);
+            Print("  Descartados por flujo    : " + cntNoOf);
+            Print("  Descartados por riesgo   : " + cntNoRisk);
+            Print("  Descartados por lim.dia  : " + cntNoDia);
+            Print("  ENTRADAS                 : " + cntIn);
+            Print("==========================================");
         }
 
         /// <summary>
@@ -366,6 +380,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             beDone = false; lastScore = 0;
 
             cntSweep = cntMss = cntIn = 0;
+            embudoImpreso = false;
             cntNoSes = cntNoScore = cntNoOf = cntNoRisk = cntNoDia = 0;
 
             sessionStartBar = -1; lastEntryBar = -1;
@@ -670,6 +685,10 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             // 16b) Sin serie de 1 tick el breakeven se evalua al cierre de vela.
             if (IdxTick < 0) GestionBarra(Close[0]);
+
+            // 16c) Embudo: se imprime al llegar a las ultimas velas, sin
+            //      esperar a State.Terminated.
+            if (CurrentBar >= Bars.Count - 2) ImprimirEmbudo();
 
             // 17) Panel.
             if (ShowDashboard && State == State.Realtime)
