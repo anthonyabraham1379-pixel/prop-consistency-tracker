@@ -116,9 +116,15 @@ namespace NinjaTrader.NinjaScript.Strategies
         // ---------- embudo ----------
         private int cntFvg, cntPocDentro, cntSenal, cntIn;
         private int cntNoDelta, cntNoPoc, cntNoSesion, cntNoRiesgo, cntNoDia, cntNoDom;
+        private int cntNoImb, cntNoDiv, cntNoSesgo;
         private bool embudoImpreso = false;
 
+        // ---------- footprint avanzado ----------
+        private int    imbCompra = 0, imbVenta = 0;   // imbalances apiladas en la vela
+        private double maxSeen = 0, minSeen = 0;      // recorrido del delta dentro de la vela
+
         private ATR atrInd;
+        private EMA emaHtf;
 
         // ===============================================================
         protected override void OnStateChange()
@@ -157,6 +163,16 @@ namespace NinjaTrader.NinjaScript.Strategies
                 PocUmbral      = 0.40;    // mitad baja = pocRel <= 0.40 para largos
                 DeltaMinRatio  = 0.10;    // |delta| / volumen de la vela
                 DeltaMinAbs    = 0;       // 0 = solo se usa el ratio
+
+                // 2b) Footprint avanzado
+                MinImbalances    = 0;      // 0 = off. 3 es el estandar de footprint
+                ImbalanceRatio   = 3.0;
+                UsarDivergencia  = false;
+                DivergenciaMin   = 0.50;
+
+                // 2c) Sesgo direccional
+                UsarSesgoHtf     = true;   // los largos rendian 0.79 y los cortos 1.38
+                HtfEmaPeriodo    = 50;
 
                 // 3) Sesion (hora ET)
                 UsarSesion     = true;
@@ -199,6 +215,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (State == State.DataLoaded)
             {
                 atrInd = ATR(14);
+                emaHtf = EMA(Closes[IdxHtf], HtfEmaPeriodo);
                 Reset();
             }
             else if (State == State.Realtime)
@@ -217,11 +234,13 @@ namespace NinjaTrader.NinjaScript.Strategies
             fvgAlcBar = fvgBajBar = -1;
             pocPrecio = pocRel = double.NaN;
             barDelta = barVolTot = 0;
+            imbCompra = imbVenta = 0; maxSeen = minSeen = 0;
             domBid = domAsk = 0; domVivo = false;
             posEntry = posSL = posTP = 0; beHecho = false; ultimaEntradaBar = -1;
             dayStartCum = 0; opsHoy = 0; diaBloqueado = false; diaActual = DateTime.MinValue;
             cntFvg = cntPocDentro = cntSenal = cntIn = 0;
             cntNoDelta = cntNoPoc = cntNoSesion = cntNoRiesgo = cntNoDia = cntNoDom = 0;
+            cntNoImb = cntNoDiv = cntNoSesgo = 0;
             embudoImpreso = false;
         }
 
@@ -336,6 +355,32 @@ namespace NinjaTrader.NinjaScript.Strategies
             else if (ModoPoc == FpPocMode.Momentum)
                 pocOK = dir > 0 ? pocRel >= (1.0 - PocUmbral) : pocRel <= PocUmbral;
             if (!pocOK) { cntNoPoc++; return false; }
+
+            // --- imbalances apiladas: el agresor esta empujando de verdad ---
+            if (MinImbalances > 0)
+            {
+                int imb = dir > 0 ? imbCompra : imbVenta;
+                if (imb < MinImbalances) { cntNoImb++; return false; }
+            }
+
+            // --- divergencia de delta intravela ---
+            // El delta se fue lejos EN CONTRA durante la vela y aun asi cerro a
+            // favor: alguien estuvo absorbiendo todo ese flujo agresivo.
+            if (UsarDivergencia && barVolTot > 0)
+            {
+                double contra = dir > 0 ? -minSeen : maxSeen;   // recorrido adverso
+                if (contra / barVolTot < DivergenciaMin) { cntNoDiv++; return false; }
+            }
+
+            // --- sesgo direccional del TF mayor ---
+            // Sobre el ano completo los largos rendian PF 0.79 y los cortos 1.38.
+            // En vez de elegir un lado a dedo, se exige que la estructura mayor
+            // acompane: asi la asimetria se corrige por causa, no por seleccion.
+            if (UsarSesgoHtf && CurrentBars[IdxHtf] > HtfEmaPeriodo)
+            {
+                bool alcista = Closes[IdxHtf][0] > emaHtf[0];
+                if ((dir > 0 && !alcista) || (dir < 0 && alcista)) { cntNoSesgo++; return false; }
+            }
 
             cntSenal++;
 
@@ -453,6 +498,33 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (maxVol <= 0) return;
                 pocPrecio = poc;
                 pocRel    = (poc - lo) / (hi - lo);    // 0 = en el minimo, 1 = en el maximo
+
+                // --- recorrido del delta DENTRO de la vela ---
+                // Si el delta llego muy lejos en un sentido y la vela cerro en el
+                // otro, hubo absorcion a una resolucion mas fina que el POC.
+                maxSeen = v.MaxSeenDelta;
+                minSeen = v.MinSeenDelta;
+
+                // --- imbalances apiladas (la senal clasica del footprint) ---
+                // Se compara en DIAGONAL: el ask de un precio contra el bid del
+                // precio inmediatamente inferior. Es asi porque el comprador
+                // agresivo paga el ask y el vendedor agresivo pega en el bid, y
+                // ambos no compiten en el mismo nivel sino en niveles contiguos.
+                imbCompra = 0; imbVenta = 0;
+                int rachaC = 0, rachaV = 0;
+                for (int i = 1; i < pasos; i++)
+                {
+                    double pAlto = lo + i * TickSize;
+                    double pBajo = lo + (i - 1) * TickSize;
+                    double ask = v.GetAskVolumeForPrice(pAlto);
+                    double bid = v.GetBidVolumeForPrice(pBajo);
+                    if (ask > 0 && bid > 0 && ask >= bid * ImbalanceRatio)
+                    { rachaC++; if (rachaC > imbCompra) imbCompra = rachaC; }
+                    else rachaC = 0;
+                    if (bid > 0 && ask > 0 && bid >= ask * ImbalanceRatio)
+                    { rachaV++; if (rachaV > imbVenta) imbVenta = rachaV; }
+                    else rachaV = 0;
+                }
             }
             catch (Exception ex)
             {
@@ -509,6 +581,9 @@ namespace NinjaTrader.NinjaScript.Strategies
             Print("  POC dentro del FVG      : " + cntPocDentro);
             Print("  Descartados por delta   : " + cntNoDelta);
             Print("  Descartados por POC     : " + cntNoPoc);
+            Print("  Descartados por imbalance: " + cntNoImb);
+            Print("  Descartados por divergen.: " + cntNoDiv);
+            Print("  Descartados por sesgo HTF: " + cntNoSesgo);
             Print("  Senales validas         : " + cntSenal);
             Print("  Descartados por sesion  : " + cntNoSesion);
             Print("  Descartados por DOM     : " + cntNoDom);
@@ -564,6 +639,43 @@ namespace NinjaTrader.NinjaScript.Strategies
         [NinjaScriptProperty] [Range(0, 100000)]
         [Display(Name = "Delta absoluto minimo (0 = off)", Order = 6, GroupName = "2) Footprint")]
         public int DeltaMinAbs { get; set; }
+        #endregion
+
+        #region 2b) Footprint avanzado
+        [NinjaScriptProperty] [Range(0, 20)]
+        [Display(Name = "Imbalances apiladas minimas (0=off)", Order = 1, GroupName = "2b) Footprint avanzado",
+                 Description = "La senal clasica del footprint. Compara en DIAGONAL el ask de un precio contra "
+                             + "el bid del precio inmediatamente inferior. 3 seguidas es el estandar. Es el "
+                             + "dato mas potente que dan las barras Volumetric y que no usabamos.")]
+        public int MinImbalances { get; set; }
+
+        [NinjaScriptProperty] [Range(1.5, 20.0)]
+        [Display(Name = "Ratio de imbalance", Order = 2, GroupName = "2b) Footprint avanzado")]
+        public double ImbalanceRatio { get; set; }
+
+        [NinjaScriptProperty]
+        [Display(Name = "Exigir divergencia de delta intravela", Order = 3, GroupName = "2b) Footprint avanzado",
+                 Description = "El delta se fue lejos EN CONTRA durante la vela y aun asi cerro a favor: "
+                             + "alguien absorbio todo ese flujo agresivo. Usa MaxSeenDelta/MinSeenDelta, "
+                             + "que es absorcion a resolucion mas fina que la posicion del POC.")]
+        public bool UsarDivergencia { get; set; }
+
+        [NinjaScriptProperty] [Range(0.05, 3.0)]
+        [Display(Name = "Recorrido adverso minimo (x volumen)", Order = 4, GroupName = "2b) Footprint avanzado")]
+        public double DivergenciaMin { get; set; }
+        #endregion
+
+        #region 2c) Sesgo direccional
+        [NinjaScriptProperty]
+        [Display(Name = "Exigir sesgo del TF mayor", Order = 1, GroupName = "2c) Sesgo direccional",
+                 Description = "Sobre el ano completo los largos rendian PF 0.79 y los cortos 1.38. En vez de "
+                             + "elegir un lado a dedo, se exige que la estructura mayor acompane: la asimetria "
+                             + "se corrige por causa, no por seleccion.")]
+        public bool UsarSesgoHtf { get; set; }
+
+        [NinjaScriptProperty] [Range(5, 400)]
+        [Display(Name = "EMA del TF mayor", Order = 2, GroupName = "2c) Sesgo direccional")]
+        public int HtfEmaPeriodo { get; set; }
         #endregion
 
         #region 3) Sesion (hora ET)
