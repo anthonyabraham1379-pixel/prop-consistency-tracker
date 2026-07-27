@@ -11,26 +11,42 @@
 //     5m  REFINADO   estructura de liquidez, swings, EQH/EQL, pools
 //     1m  EJECUCION  footprint, imbalances, absorcion, delta, entrada
 //
-//  SCORE (100 puntos)
-//    Sweep de liquidez 20 | Zona del perfil 20 | Absorcion 20
-//    Stacked imbalance 15 | Delta 15          | Subasta terminada 10
+//  ARQUITECTURA DEL SCORE (100 puntos)
 //
-//  Sweep, zona de perfil, delta, mecha de rechazo y contexto de 15m son
-//  PUERTAS DURAS: sin ellas no se evalua nada. El suelo que dejan es 55,
-//  asi que el umbral decide cuantos OPCIONALES hacen falta:
-//    umbral 65 -> basta con subasta terminada (10)
-//    umbral 70 -> hace falta imbalance (15) o absorcion (20)
-//    umbral 85 -> hacen falta DOS de los tres
+//  PUERTAS DURAS - solo precio y estructura. Sin ellas no hay entrada:
+//    sesion / lunch / volumen / rango / fuera del POC / fuera del area
+//    de valor  +  sweep de un pool de 5m  +  nivel institucional
+//    +  mecha de rechazo  +  contexto de 15m
+//  Pasarlas todas vale PtsBase (55).
 //
-//  AVISO APRENDIDO A GOLPES (primer backtest: 2 operaciones en 7 meses).
+//  ORDER FLOW - SOLO SUMA, NUNCA VETA:
+//    Delta de la vela      15
+//    CVD de la sesion       5
+//    Absorcion             10
+//    Stacked imbalance     10
+//    Subasta terminada      5
+//
+//  Con UmbralScore = 55 operas el esqueleto de precio puro y el order
+//  flow no filtra nada. Subiendo el umbral exiges confirmacion de flujo.
+//  La diferencia entre esos dos backtests ES lo que aporta el order
+//  flow, medida en tu plataforma en vez de supuesta.
+//
+//  POR QUE ESTA ASI (aprendido a golpes)
+//  La primera version usaba el delta como PUERTA DURA y dio 2 operaciones
+//  en 7 meses. Medido sobre el ano de ES, el esqueleto de precio solo da
+//  272 operaciones con PF 1.45 (walk-forward 1.40 / 1.49); ponerle encima
+//  un filtro obligatorio de footprint lo estrangulaba hasta la nada.
+//  Ninguna lectura de Volumetric puede vetar una entrada: si el footprint
+//  falla o el delta contradice, la operacion sigue siendo valida y solo
+//  puntua menos.
+//
+//  El contexto de 15m SI es puerta dura, y es la unica que se gano el
+//  puesto midiendo: quitarla hunde el sistema de PF 1.45 a 0.91.
+//
+//  AVISO DE CONFIGURACION
 //  AbsorcionRangoTicks tiene que ser MAYOR que AtrMinimoTicks. Si la vela
 //  de entrada debe medir 8 ticks pero la ventana de absorcion solo tolera
-//  6, esa misma vela rompe la ventana y resetea el contador: la absorcion
-//  no puede activarse NUNCA en las velas que pasan el filtro de rango.
-//  Con eso el unico camino al umbral quedaba en 3 imbalances apiladas en
-//  una vela de 1 minuto, que practicamente no existen. Medido sobre el
-//  ano de ES, las puertas de precio dejaban 1.769 candidatas (6,75 al
-//  dia): el mercado daba setups de sobra, el fallo era aritmetico.
+//  6, esa misma vela rompe la ventana: la absorcion no se activa nunca.
 //
 //  GESTION
 //  Objetivo lejano (3R) para dejar correr al ganador, parcial opcional
@@ -48,7 +64,8 @@
 //  umbral de score. Eso te ahorra tener que relanzar el backtest para
 //  cada umbral.
 //
-//  REQUISITO: barras Volumetric (licencia Lifetime u Order Flow+).
+//  VOLUMETRIC (Lifetime u Order Flow+) es OPCIONAL: sin el, el order flow
+//  no suma puntos y el sistema opera su esqueleto de precio con umbral 55.
 //  APLICAR SOBRE: grafico / backtest de 1 minuto de ES.
 //  ARCHIVO 100% ASCII.
 // ===================================================================
@@ -483,9 +500,10 @@ namespace NinjaTrader.NinjaScript.Strategies
                 AbsorcionDeltaMin   = 0.25;
 
                 // --- 7) Score ---
-                UmbralScore  = 65;
-                PtsSweep     = 20; PtsPerfil = 20; PtsAbsorcion = 20;
-                PtsImbalance = 15; PtsDelta  = 15; PtsSubasta   = 10;
+                UmbralScore  = 55;   // 55 = esqueleto de precio puro (lo medido)
+                PtsBase      = 55;
+                PtsDelta     = 15; PtsCvd       = 5;
+                PtsAbsorcion = 10; PtsImbalance = 10; PtsSubasta = 5;
 
                 // --- 8) Filtros ---
                 UsarSesion         = true;
@@ -855,7 +873,9 @@ namespace NinjaTrader.NinjaScript.Strategies
         // ===============================================================
         private void EvaluarSenal()
         {
-            if (!fp.Valida) return;
+            // OJO: NO exigimos fp.Valida. Sin footprint el sistema sigue
+            // operando su esqueleto de precio, que es el que tiene el edge
+            // medido; el order flow solo anade puntos cuando esta disponible.
             if (CurrentBar - ultimaSenalBarra < 5) return;
 
             for (int k = 0; k < 2; k++)
@@ -882,54 +902,69 @@ namespace NinjaTrader.NinjaScript.Strategies
                 if (!perfilOK) continue;
                 nPerfil++;
 
-                // --- 3) ABSORCION (20) ---
-                bool absorcionOK = HayAbsorcion(dir);
-                if (absorcionOK) nAbs++;
-
-                // --- 4) STACKED IMBALANCE (15) ---
-                int imb = dir == IofDir.Largo ? fp.ImbCompra : fp.ImbVenta;
-                bool imbalanceOK = imb >= MinImbalances;
-                if (imbalanceOK) nImb++;
-
-                // --- 5) DELTA (15) ---
-                bool deltaOK = signo * fp.DeltaPct >= DeltaMinimoPct;
-                if (UsarDivergenciaDelta && !deltaOK)
-                {
-                    double adverso = dir == IofDir.Largo ? -fp.MinSeen : fp.MaxSeen;
-                    deltaOK = fp.VolumenTotal > 0 && adverso / fp.VolumenTotal >= 0.40
-                              && (dir == IofDir.Largo ? fp.AtrapadosVendedores : fp.AtrapadosCompradores);
-                }
-                if (!deltaOK) continue;
-                nDelta++;
-
-                if (!CvdApoya(dir)) continue;
-                nCvd++;
-
-                // --- 6) SUBASTA TERMINADA (10) ---
-                bool subastaOK = dir == IofDir.Largo ? fp.SubastaTerminadaAbajo : fp.SubastaTerminadaArriba;
-                if (subastaOK) nSub++;
-
-                // --- 7) RECHAZO DEL NIVEL ---
+                // --- 3) RECHAZO DEL NIVEL (puerta de precio) ---
                 double rango = Math.Max(High[0] - Low[0], TickSize);
                 double mecha = dir == IofDir.Largo ? (Math.Min(Open[0], Close[0]) - Low[0]) / rango
                                                    : (High[0] - Math.Max(Open[0], Close[0])) / rango;
                 if (mecha < MechaMinimaSweep) continue;
                 nMecha++;
 
-                // --- 8) CONTEXTO DIRECCIONAL (15m) ---
+                // --- 4) CONTEXTO DIRECCIONAL 15m (puerta de precio) ---
+                // Medido: quitar esta puerta hunde el sistema de PF 1.45 a 0.91.
+                // Es la unica de las opcionales que resulto ser obligatoria.
                 bool contextoOK = dir == IofDir.Largo
                                   ? Closes[Idx15][0] > Opens[Idx15][0] || Close[0] > perfil.Poc
                                   : Closes[Idx15][0] < Opens[Idx15][0] || Close[0] < perfil.Poc;
                 if (!contextoOK) continue;
                 nContexto++;
 
+                // ===========================================================
+                //  A PARTIR DE AQUI EL ORDER FLOW SOLO SUMA PUNTOS.
+                //  Ninguna lectura de footprint puede vetar una entrada: si
+                //  el Volumetric falla o el delta contradice, la operacion
+                //  sigue siendo valida, solo puntua menos. Este fue el error
+                //  de la version anterior (delta como puerta dura -> 2
+                //  operaciones en 7 meses).
+                // ===========================================================
+
+                // --- 5) DELTA de la vela ---
+                bool deltaOK = false;
+                if (fp.Valida)
+                {
+                    deltaOK = signo * fp.DeltaPct >= DeltaMinimoPct;
+                    if (UsarDivergenciaDelta && !deltaOK)
+                    {
+                        double adverso = dir == IofDir.Largo ? -fp.MinSeen : fp.MaxSeen;
+                        deltaOK = fp.VolumenTotal > 0 && adverso / fp.VolumenTotal >= 0.40
+                                  && (dir == IofDir.Largo ? fp.AtrapadosVendedores : fp.AtrapadosCompradores);
+                    }
+                }
+                if (deltaOK) nDelta++;
+
+                // --- 6) CVD de la sesion ---
+                bool cvdOK = fp.Valida && CvdApoya(dir);
+                if (cvdOK) nCvd++;
+
+                // --- 7) ABSORCION ---
+                bool absorcionOK = HayAbsorcion(dir);
+                if (absorcionOK) nAbs++;
+
+                // --- 8) STACKED IMBALANCE ---
+                int imb = fp.Valida ? (dir == IofDir.Largo ? fp.ImbCompra : fp.ImbVenta) : 0;
+                bool imbalanceOK = imb >= MinImbalances;
+                if (imbalanceOK) nImb++;
+
+                // --- 9) SUBASTA TERMINADA ---
+                bool subastaOK = fp.Valida
+                               && (dir == IofDir.Largo ? fp.SubastaTerminadaAbajo : fp.SubastaTerminadaArriba);
+                if (subastaOK) nSub++;
+
                 // --- SCORE ---
-                int score = 0;
-                if (sweepOK)     score += PtsSweep;
-                if (perfilOK)    score += PtsPerfil;
+                int score = PtsBase;              // las puertas de precio ya pasadas
+                if (deltaOK)     score += PtsDelta;
+                if (cvdOK)       score += PtsCvd;
                 if (absorcionOK) score += PtsAbsorcion;
                 if (imbalanceOK) score += PtsImbalance;
-                if (deltaOK)     score += PtsDelta;
                 if (subastaOK)   score += PtsSubasta;
                 scoresVistos.Add(score);
                 nScore++;
@@ -1038,16 +1073,19 @@ namespace NinjaTrader.NinjaScript.Strategies
             Print("  pasan filtros     : " + nFiltro);
             Print("  con sweep valido  : " + nSweep);
             Print("  + zona de perfil  : " + nPerfil);
-            Print("  + delta OK        : " + nDelta);
-            Print("  + CVD OK          : " + nCvd);
             Print("  + mecha de rechazo: " + nMecha);
             Print("  + contexto 15m    : " + nContexto);
             Print("  llegan al score   : " + nScore);
             Print("  SUPERAN el umbral : " + nSenal);
-            Print("  --- de los que llegan al score, cuantos activan cada opcional ---");
-            Print("    absorcion  (20 pts): " + nAbs);
-            Print("    imbalance  (15 pts): " + nImb);
-            Print("    subasta    (10 pts): " + nSub);
+            Print("  --- order flow: cuantos de esos lo confirman (solo suma) ---");
+            Print("    delta      (" + PtsDelta + " pts): " + nDelta);
+            Print("    CVD        (" + PtsCvd + " pts): " + nCvd);
+            Print("    absorcion  (" + PtsAbsorcion + " pts): " + nAbs);
+            Print("    imbalance  (" + PtsImbalance + " pts): " + nImb);
+            Print("    subasta    (" + PtsSubasta + " pts): " + nSub);
+            if (nScore > 0 && nDelta == 0 && nAbs == 0 && nImb == 0 && nSub == 0)
+                Print("  *** El footprint no aporto NADA: seguramente no tienes barras "
+                      + "Volumetric disponibles. El sistema opero solo con precio. ***");
             if (AbsorcionRangoTicks <= AtrMinimoTicks)
                 Print("  *** AVISO: AbsorcionRangoTicks (" + AbsorcionRangoTicks
                       + ") <= AtrMinimoTicks (" + AtrMinimoTicks + "). La vela que pasa el "
@@ -1149,7 +1187,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         public bool UsarDivergenciaDelta { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Filtrar por CVD de sesion", Order = 3, GroupName = "5) Delta")]
+        [Display(Name = "Puntuar el CVD de sesion", Order = 3, GroupName = "5) Delta",
+                 Description = "El CVD SUMA puntos, nunca veta una entrada.")]
         public bool UsarCvd { get; set; }
         #endregion
 
@@ -1173,18 +1212,20 @@ namespace NinjaTrader.NinjaScript.Strategies
         #region 7) Score
         [NinjaScriptProperty] [Range(0, 100)]
         [Display(Name = "Umbral de score", Order = 1, GroupName = "7) Score",
-                 Description = "Puertas duras (sweep, perfil, delta, mecha, contexto) dejan un "
-                             + "suelo de 55. 65 = basta subasta terminada; 70 = hace falta "
-                             + "imbalance o absorcion; 85 = hacen falta dos de los tres.")]
+                 Description = "55 = esqueleto de precio puro, el order flow no filtra nada. "
+                             + "Subelo para exigir confirmacion de flujo y compara: esa "
+                             + "diferencia ES lo que aporta el order flow, medida.")]
         public int UmbralScore { get; set; }
 
         [NinjaScriptProperty] [Range(0, 100)]
-        [Display(Name = "Puntos: sweep", Order = 2, GroupName = "7) Score")]
-        public int PtsSweep { get; set; }
+        [Display(Name = "Puntos: base (puertas de precio)", Order = 2, GroupName = "7) Score",
+                 Description = "Lo que vale haber pasado sweep + nivel + rechazo + contexto 15m. "
+                             + "Si el umbral es igual a esto, operas el esqueleto de precio puro.")]
+        public int PtsBase { get; set; }
 
         [NinjaScriptProperty] [Range(0, 100)]
-        [Display(Name = "Puntos: zona del perfil", Order = 3, GroupName = "7) Score")]
-        public int PtsPerfil { get; set; }
+        [Display(Name = "Puntos: CVD de sesion", Order = 3, GroupName = "7) Score")]
+        public int PtsCvd { get; set; }
 
         [NinjaScriptProperty] [Range(0, 100)]
         [Display(Name = "Puntos: absorcion", Order = 4, GroupName = "7) Score")]
