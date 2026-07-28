@@ -48,7 +48,11 @@
 //    UNA sola operacion, no una racha, asi que el limite diario no lo
 //    evita y este filtro si.
 //
-//  APLICAR SOBRE: 15m o 1H (tambien funciona en 1m-5m).
+//  APLICAR SOBRE: el TF que quieras, con el TF mayor SIEMPRE por encima.
+//  Por defecto: grafico de 1 minuto con TF mayor de 3 minutos. Si lo
+//  pones en 15m, sube MinutosHtf a 60; en 1H, a 240. Si el TF mayor no
+//  supera al del grafico, el sesgo no filtra nada y el codigo te avisa
+//  por el Output al arrancar.
 //  VOLUMETRIC (Lifetime u Order Flow+) es OPCIONAL.
 //  ARCHIVO 100% ASCII.
 // ===================================================================
@@ -143,6 +147,7 @@ namespace NinjaTrader.NinjaScript.Strategies
         private int cntOfConfirma = 0, cntOfNiega = 0;
         private readonly List<int> scoresVistos = new List<int>();
         private bool embudoVolcado = false;
+        private bool htfAvisado = false;
 
         // ===============================================================
         protected override void OnStateChange()
@@ -172,7 +177,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
                 // --- 2) Sesgo (TF mayor + VWAP) ---
                 UsarHtf      = true;
-                MinutosHtf   = 60;
+                MinutosHtf   = 3;    // TF mayor. Ver el aviso de validez en OnBarUpdate.
                 EmaHtf       = 50;
                 UsarVwap     = false;
 
@@ -283,7 +288,7 @@ namespace NinjaTrader.NinjaScript.Strategies
             beHecho = parcialHecho = false; dirActual = 0;
             cntSweep = cntMss = cntListo = cntSes = cntIn = 0;
             cntOfConfirma = cntOfNiega = 0;
-            scoresVistos.Clear(); embudoVolcado = false;
+            scoresVistos.Clear(); embudoVolcado = false; htfAvisado = false;
         }
 
         // ===============================================================
@@ -298,7 +303,24 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             int necesarias = Math.Max(PivoteSwing, PivoteMenor) * 2 + EmaHtf + 5;
             if (CurrentBar < necesarias) return;
-            if (CurrentBars[IdxHtf] < 2) return;
+            if (CurrentBars[IdxHtf] < EmaHtf + 2) return;   // la EMA del TF mayor necesita su historial
+
+            // ---------- validez del TF mayor (el "TF >= HTF !" del panel del Pine) ----------
+            // Si el TF mayor no es MAYOR que el del grafico, el sesgo no significa
+            // nada: estarias filtrando con datos del mismo marco o de uno menor.
+            if (!htfAvisado)
+            {
+                htfAvisado = true;
+                double minGrafico = BarsPeriod.BarsPeriodType == BarsPeriodType.Minute
+                                  ? BarsPeriod.Value : 0;
+                if (minGrafico > 0 && MinutosHtf <= minGrafico)
+                    Print("AVISO: el TF mayor (" + MinutosHtf + "m) no es mayor que el del "
+                        + "grafico (" + minGrafico + "m). El sesgo HTF no aporta nada asi. "
+                        + "En un grafico de 1m usa 3m o mas.");
+                else
+                    Print("Config: grafico " + minGrafico + "m | TF mayor " + MinutosHtf
+                        + "m | EMA " + EmaHtf + " (= " + (MinutosHtf * EmaHtf) + " minutos de historial)");
+            }
 
             // ---------- corte de sesion ----------
             if (Bars.IsFirstBarOfSession)
@@ -941,7 +963,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 
         [NinjaScriptProperty] [Range(1, 1440)]
         [Display(Name = "Minutos del TF mayor", Order = 2, GroupName = "2) Sesgo",
-                 Description = "El Pine usa 15m->1H y 1H->4H. En 15m pon 60; en 1H pon 240.")]
+                 Description = "Tiene que ser MAYOR que el TF del grafico. En grafico de 1m "
+                             + "usa 3 (por defecto) o 5; en 15m pon 60; en 1H pon 240. El "
+                             + "historial que consume es MinutosHtf x EMA del TF mayor.")]
         public int MinutosHtf { get; set; }
 
         [NinjaScriptProperty] [Range(2, 400)]
