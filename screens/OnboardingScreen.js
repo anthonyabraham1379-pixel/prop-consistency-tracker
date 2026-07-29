@@ -10,27 +10,32 @@ import SegmentedControl from '../components/SegmentedControl';
 import PresetCard from '../components/PresetCard';
 import PrimaryButton from '../components/PrimaryButton';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { EMPTY_CHALLENGE, FIRM_PRESETS } from '../config/defaultParams';
 import { useChallenges } from '../context/ChallengesContext';
 import { usePreferences } from '../context/PreferencesContext';
 
-const CONSISTENCY_MODE_OPTIONS = [
-  { label: strings.onboarding.consistencyNone, value: 'none' },
-  { label: strings.onboarding.consistencyWithLimit, value: 'limit' },
-];
-
-const DRAWDOWN_TYPE_OPTIONS = [
-  { label: strings.onboarding.drawdownTypeStatic, value: 'static' },
-  { label: strings.onboarding.drawdownTypeTrailing, value: 'trailing' },
-];
+function presetLabel(preset, strings) {
+  return preset.key === 'custom' ? strings.onboarding.presetCustomLabel : strings.onboarding.presetStarterLabel;
+}
 
 export default function OnboardingScreen() {
   const navigation = useNavigation();
+  const strings = useStrings();
   const { addChallenge } = useChallenges();
   const { hasSeenGuide, setHasSeenGuide } = usePreferences();
   const [form, setForm] = useState(EMPTY_CHALLENGE);
   const [presetIndex, setPresetIndex] = useState(null);
+
+  const CONSISTENCY_MODE_OPTIONS = [
+    { label: strings.onboarding.consistencyNone, value: 'none' },
+    { label: strings.onboarding.consistencyWithLimit, value: 'limit' },
+  ];
+
+  const DRAWDOWN_TYPE_OPTIONS = [
+    { label: strings.onboarding.drawdownTypeStatic, value: 'static' },
+    { label: strings.onboarding.drawdownTypeTrailing, value: 'trailing' },
+  ];
 
   const updateField = (field) => (value) => setForm((f) => ({ ...f, [field]: value }));
 
@@ -42,10 +47,10 @@ export default function OnboardingScreen() {
   const applyPreset = (index) => {
     setPresetIndex(index);
     const preset = FIRM_PRESETS[index];
-    const isCustom = preset.label === strings.onboarding.presetCustomLabel;
+    const isCustom = preset.key === 'custom';
     setForm((f) => ({
       ...f,
-      name: isCustom ? '' : preset.label,
+      name: isCustom ? '' : presetLabel(preset, strings),
       accountSize: preset.accountSize ?? f.accountSize,
       profitTarget: preset.profitTarget ?? f.profitTarget,
       maxDrawdown: preset.maxDrawdown ?? f.maxDrawdown,
@@ -93,17 +98,15 @@ export default function OnboardingScreen() {
       <View style={styles.presetGrid}>
         {FIRM_PRESETS.map((preset, index) => (
           <PresetCard
-            key={preset.label}
-            label={preset.label}
+            key={preset.key}
+            label={presetLabel(preset, strings)}
             active={presetIndex === index}
             onPress={() => applyPreset(index)}
             grid
           />
         ))}
       </View>
-      <Text style={styles.presetDisclaimer}>
-        Verifica siempre las reglas actuales de tu firm — estos valores son solo un punto de partida.
-      </Text>
+      <Text style={styles.presetDisclaimer}>{strings.onboarding.presetDisclaimer}</Text>
 
       <FieldLabel>{strings.onboarding.nameLabel}</FieldLabel>
       <TextInput

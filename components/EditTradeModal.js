@@ -3,6 +3,7 @@ import { Alert, Modal, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../config/theme';
+import { useStrings } from '../config/strings';
 import IconButton from './IconButton';
 import FieldLabel from './FieldLabel';
 import NumField from './NumField';
@@ -10,13 +11,9 @@ import SegmentedControl from './SegmentedControl';
 import DateTimeField from './DateTimeField';
 import PrimaryButton from './PrimaryButton';
 
-const SIGN_OPTIONS = [
-  { label: 'Ganancia', value: 'gain' },
-  { label: 'Pérdida', value: 'loss' },
-];
-
 export default function EditTradeModal({ visible, trade, onClose, onSave, onDelete }) {
   const insets = useSafeAreaInsets();
+  const strings = useStrings();
   const [sign, setSign] = useState('gain');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date());
@@ -36,11 +33,16 @@ export default function EditTradeModal({ visible, trade, onClose, onSave, onDele
     onClose();
   };
 
+  const SIGN_OPTIONS = [
+    { label: strings.addDay.gain, value: 'gain' },
+    { label: strings.addDay.loss, value: 'loss' },
+  ];
+
   const handleDelete = () => {
-    Alert.alert('Eliminar trade', 'Esta acción no se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
+    Alert.alert(strings.editTrade.deleteConfirmTitle, strings.editTrade.deleteConfirmBody, [
+      { text: strings.common.cancel, style: 'cancel' },
       {
-        text: 'Eliminar',
+        text: strings.common.delete,
         style: 'destructive',
         onPress: () => {
           onDelete();
@@ -55,20 +57,20 @@ export default function EditTradeModal({ visible, trade, onClose, onSave, onDele
       <View style={styles.backdrop}>
         <View style={[styles.sheet, { paddingBottom: theme.spacing(4) + insets.bottom }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Editar trade</Text>
+            <Text style={styles.title}>{strings.editTrade.title}</Text>
             <IconButton name="close" onPress={onClose} />
           </View>
 
-          <FieldLabel>Resultado del día</FieldLabel>
+          <FieldLabel>{strings.addDay.resultLabel}</FieldLabel>
           <SegmentedControl options={SIGN_OPTIONS} value={sign} onChange={setSign} />
 
-          <NumField label="Monto" value={amount} onChange={setAmount} prefix="$" />
+          <NumField label={strings.addDay.amountLabel} value={amount} onChange={setAmount} prefix="$" />
 
-          <DateTimeField label="Fecha y hora" value={date} onChange={setDate} />
+          <DateTimeField label={strings.addDay.dateTimeLabel} value={date} onChange={setDate} />
 
-          <PrimaryButton label="Guardar cambios" onPress={handleSave} style={styles.saveButton} disabled={!amount} />
+          <PrimaryButton label={strings.editTrade.saveChanges} onPress={handleSave} style={styles.saveButton} disabled={!amount} />
           <Text style={styles.deleteLink} onPress={handleDelete}>
-            Eliminar este trade
+            {strings.editTrade.deleteLink}
           </Text>
         </View>
       </View>

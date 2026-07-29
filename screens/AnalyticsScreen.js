@@ -10,18 +10,11 @@ import SegmentedControl from '../components/SegmentedControl';
 import DonutChart from '../components/DonutChart';
 import Sparkline from '../components/Sparkline';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
 import { usePremium } from '../context/PremiumContext';
 import { getTradeStats, getCumulativeCurve } from '../utils/calculations';
 import { formatMoney } from '../utils/format';
-
-const PERIOD_OPTIONS = [
-  { label: strings.analytics.periodWeek, value: 'week' },
-  { label: strings.analytics.periodMonth, value: 'month' },
-  { label: strings.analytics.periodYear, value: 'year' },
-  { label: strings.analytics.periodAll, value: 'all' },
-];
 
 function getPeriodStart(period) {
   const now = new Date();
@@ -49,10 +42,18 @@ function filterTradesByPeriod(trades, period) {
 
 export default function AnalyticsScreen() {
   const navigation = useNavigation();
+  const strings = useStrings();
   const { challenges, activeChallenge, setActiveChallenge } = useChallenges();
   const { isPremium } = usePremium();
   const [period, setPeriod] = useState('month');
   const lockedPeriods = isPremium ? [] : ['year', 'all'];
+
+  const PERIOD_OPTIONS = [
+    { label: strings.analytics.periodWeek, value: 'week' },
+    { label: strings.analytics.periodMonth, value: 'month' },
+    { label: strings.analytics.periodYear, value: 'year' },
+    { label: strings.analytics.periodAll, value: 'all' },
+  ];
 
   const challenge = activeChallenge;
 
@@ -64,7 +65,7 @@ export default function AnalyticsScreen() {
     return (
       <Screen>
         <ScreenHeader title={strings.analytics.title} onBack={() => navigation.goBack()} />
-        <Text style={styles.emptyText}>No hay ninguna cuenta activa.</Text>
+        <Text style={styles.emptyText}>{strings.common.noActiveAccount}</Text>
       </Screen>
     );
   }

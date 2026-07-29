@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DashboardScreen from '../screens/DashboardScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 
 const Tab = createBottomTabNavigator();
 
@@ -15,6 +15,7 @@ const TAB_ICONS = {
 };
 
 export default function MainTabs() {
+  const strings = useStrings();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({

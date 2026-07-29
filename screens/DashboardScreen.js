@@ -15,7 +15,7 @@ import BreachModal from '../components/BreachModal';
 import AccountSwitcherModal from '../components/AccountSwitcherModal';
 import AdBanner from '../components/AdBanner';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
 import { usePreferences } from '../context/PreferencesContext';
 import { getChallengeSummary } from '../utils/calculations';
@@ -23,6 +23,7 @@ import { formatDate, formatMoney } from '../utils/format';
 
 export default function DashboardScreen() {
   const navigation = useNavigation();
+  const strings = useStrings();
   const {
     activeChallenge,
     challenges,
@@ -44,7 +45,7 @@ export default function DashboardScreen() {
     return (
       <Screen>
         <ScreenHeader title={strings.tabs.dashboard} />
-        <Text style={styles.emptyText}>No hay ninguna cuenta activa.</Text>
+        <Text style={styles.emptyText}>{strings.common.noActiveAccount}</Text>
       </Screen>
     );
   }
@@ -124,30 +125,30 @@ export default function DashboardScreen() {
           </Text>
           <Text style={styles.statusLabel}>
             {!limit
-              ? 'Sin regla de consistencia configurada'
+              ? strings.dashboard.noConsistencyRule
               : summary.isConsistencyCompliant
-              ? `Cumples el límite de ${limit}%`
-              : `Excede el límite de ${limit}%`}
+              ? strings.dashboard.withinLimit.replace('{limit}', limit)
+              : strings.dashboard.overLimit.replace('{limit}', limit)}
           </Text>
         </View>
       </View>
 
       <View style={styles.grid}>
-        <MetricCard label="Ganancia total" value={money(summary.totalProfit)} accent={theme.colors.positive} />
+        <MetricCard label={strings.dashboard.totalProfit} value={money(summary.totalProfit)} accent={theme.colors.positive} />
         <MetricCard
-          label="Progreso a meta"
+          label={strings.dashboard.targetProgress}
           value={`${summary.targetProgressPct.toFixed(0)}%`}
           subValue={`${money(summary.totalProfit)} / ${money(activeChallenge.profitTarget)}`}
           accent={theme.colors.accent}
           barPct={summary.targetProgressPct}
         />
-        <MetricCard label="Mejor día" value={money(summary.bestDay)} accent={theme.colors.warning} />
+        <MetricCard label={strings.dashboard.bestDay} value={money(summary.bestDay)} accent={theme.colors.warning} />
         <MetricCard
-          label="Drawdown usado"
+          label={strings.dashboard.drawdownUsed}
           value={`${money(summary.maxDrawdownUsed)} / ${money(summary.maxDrawdown)}`}
           subValue={
             activeChallenge.drawdownType === 'trailing'
-              ? `Piso: ${money(summary.drawdownFloor)}`
+              ? strings.dashboard.floorLabel.replace('{value}', money(summary.drawdownFloor))
               : undefined
           }
           accent={summary.maxDrawdownUsed > summary.maxDrawdown * 0.75 ? theme.colors.negative : theme.colors.textSecondary}
@@ -156,17 +157,17 @@ export default function DashboardScreen() {
 
       <View style={styles.infoBar}>
         <Text style={styles.infoText}>
-          Días operados: <Text style={styles.infoStrong}>{summary.daysCount}</Text>
+          {strings.dashboard.daysOperated} <Text style={styles.infoStrong}>{summary.daysCount}</Text>
         </Text>
         <Text style={styles.infoDot}>·</Text>
         <Text style={styles.infoText}>
-          Rentables: <Text style={styles.infoStrong}>{summary.profitableDaysCount}</Text> / {summary.minProfitableDays} mín.
+          {strings.dashboard.profitable} <Text style={styles.infoStrong}>{summary.profitableDaysCount}</Text> / {summary.minProfitableDays} {strings.dashboard.minSuffix}
         </Text>
       </View>
 
       {trades.length > 0 ? (
         <>
-          <FieldLabel style={styles.tradesLabel}>Últimos trades</FieldLabel>
+          <FieldLabel style={styles.tradesLabel}>{strings.dashboard.recentTrades}</FieldLabel>
           <View style={styles.tradesList}>
             {[...trades].reverse().map((t) => (
               <TouchableOpacity key={t.id} style={styles.tradeRow} onPress={() => setEditingTrade(t)}>
@@ -187,7 +188,7 @@ export default function DashboardScreen() {
         </>
       ) : null}
 
-      <PrimaryButton label="+ Registrar día" onPress={() => setModalVisible(true)} style={styles.registerButton} />
+      <PrimaryButton label={strings.dashboard.registerDay} onPress={() => setModalVisible(true)} style={styles.registerButton} />
 
       <AdBanner />
 

@@ -5,8 +5,9 @@ import { Ionicons } from '@expo/vector-icons';
 
 import Screen from '../components/Screen';
 import ScreenHeader from '../components/ScreenHeader';
+import SegmentedControl from '../components/SegmentedControl';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { usePreferences } from '../context/PreferencesContext';
 import { useAuth } from '../context/AuthContext';
 import { usePremium } from '../context/PremiumContext';
@@ -33,20 +34,26 @@ function Row({ icon, label, onPress, right, disabled, last, danger }) {
   );
 }
 
-function ComingSoonBadge() {
+function ComingSoonBadge({ label }) {
   return (
     <View style={styles.comingSoonBadge}>
-      <Text style={styles.comingSoonText}>{strings.generalSettings.comingSoon}</Text>
+      <Text style={styles.comingSoonText}>{label}</Text>
     </View>
   );
 }
 
 export default function GeneralSettingsScreen() {
   const navigation = useNavigation();
-  const { hidePnl, setHidePnl } = usePreferences();
+  const strings = useStrings();
+  const { hidePnl, setHidePnl, language, setLanguage } = usePreferences();
   const { user, signingIn, signInWithGoogle, signOut } = useAuth();
   const { isPremium, restorePurchases } = usePremium();
   const [restoring, setRestoring] = React.useState(false);
+
+  const languageOptions = [
+    { label: strings.generalSettings.languageSpanish, value: 'es' },
+    { label: strings.generalSettings.languageEnglish, value: 'en' },
+  ];
 
   const showComingSoon = () => {
     Alert.alert(strings.generalSettings.comingSoon, strings.generalSettings.comingSoonBody);
@@ -63,7 +70,7 @@ export default function GeneralSettingsScreen() {
 
   const handleSignOutPress = () => {
     Alert.alert(strings.generalSettings.signOutConfirmTitle, strings.generalSettings.signOutConfirmBody, [
-      { text: 'Cancelar', style: 'cancel' },
+      { text: strings.common.cancel, style: 'cancel' },
       {
         text: strings.generalSettings.signOut,
         style: 'destructive',
@@ -126,6 +133,13 @@ export default function GeneralSettingsScreen() {
         />
       </View>
 
+      <Text style={styles.sectionLabel}>{strings.generalSettings.languageSection}</Text>
+      <View style={styles.card}>
+        <View style={styles.languageRow}>
+          <SegmentedControl options={languageOptions} value={language} onChange={setLanguage} style={styles.languageControl} />
+        </View>
+      </View>
+
       <Text style={styles.sectionLabel}>{strings.generalSettings.accountSection}</Text>
       <View style={styles.card}>
         <Row
@@ -161,14 +175,14 @@ export default function GeneralSettingsScreen() {
           icon="document-text-outline"
           label={strings.generalSettings.exportFeature}
           onPress={showComingSoon}
-          right={<ComingSoonBadge />}
+          right={<ComingSoonBadge label={strings.generalSettings.comingSoon} />}
           disabled
         />
         <Row
           icon="camera-outline"
           label={strings.generalSettings.screenshotsFeature}
           onPress={showComingSoon}
-          right={<ComingSoonBadge />}
+          right={<ComingSoonBadge label={strings.generalSettings.comingSoon} />}
           disabled
         />
         <Row
@@ -236,6 +250,8 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
   },
   syncNoteText: { fontSize: 11, color: theme.colors.textMuted, flexShrink: 1 },
+  languageRow: { paddingHorizontal: 16, paddingVertical: 14 },
+  languageControl: { marginBottom: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

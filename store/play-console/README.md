@@ -12,13 +12,31 @@ Google Play Console. Cada archivo corresponde a una sección del Console:
 | [05-contenido-de-la-app.md](05-contenido-de-la-app.md) | Contenido de la app → resto de declaraciones |
 | [06-notas-de-version.md](06-notas-de-version.md) | Versiones → Notas de la versión |
 
-Páginas públicas que Play Console pide por URL (se sirven con GitHub Pages
-desde la carpeta `docs/`):
+La carpeta [`en/`](en/) tiene el equivalente en inglés de los 6 archivos
+(mismo orden, mismos números). Úsala para:
+- Agregar **en-US** como segundo idioma de ficha en Play Console (Presencia
+  en la tienda → Ficha de Play Store → "Administrar traducciones") — ahora
+  tiene sentido porque la app ya tiene traducción completa al inglés
+  (Configuración → Idioma).
+- Rellenar el cuestionario IARC y el formulario de Seguridad de datos en
+  inglés si prefieres trabajar en ese idioma (son declaraciones globales,
+  no por idioma de ficha — solo se llenan una vez).
 
-- **Política de privacidad:** `docs/index.html` →
+Páginas públicas que Play Console pide por URL (se sirven con GitHub Pages
+desde la carpeta `docs/`), cada una con su par en inglés enlazado arriba de
+la página:
+
+- **Política de privacidad:** `docs/index.html` (ES) / `docs/index-en.html` (EN) →
   `https://anthonyabraham1379-pixel.github.io/prop-consistency-tracker/`
-- **Eliminación de cuenta y datos:** `docs/delete-account.html` →
+- **Eliminación de cuenta y datos:** `docs/delete-account.html` (ES) /
+  `docs/delete-account-en.html` (EN) →
   `https://anthonyabraham1379-pixel.github.io/prop-consistency-tracker/delete-account.html`
+
+Play Console solo permite **una** URL de política de privacidad y **una**
+URL de eliminación de datos (no son por idioma de ficha) — usa las
+versiones en español como las oficiales registradas; las páginas en inglés
+están enlazadas desde ellas para los usuarios que prefieran leerlas en ese
+idioma.
 
 > Para que esas URLs funcionen, activa GitHub Pages en el repo:
 > **Settings → Pages → Deploy from a branch → `master` / `/docs`**.
@@ -46,6 +64,9 @@ desde la carpeta `docs/`):
    `anthonyabraham1379@gmail.com`).
 5. **El package name es permanente:** `com.anthonyaal.propconsistencytracker`.
    Una vez subido el primer AAB no se puede cambiar.
+6. **Capturas de pantalla y feature graphic siguen sin existir** (archivo
+   02) — es lo único de la ficha de tienda que no se puede resolver solo
+   con texto, hay que generarlas a mano desde la app corriendo.
 
 ---
 
@@ -74,6 +95,10 @@ desde la carpeta `docs/`):
 ### D. Ficha de la tienda
 - [ ] Textos del archivo 01 + recursos gráficos del archivo 02.
 - [ ] Categoría: **Finanzas**. Correo de contacto de la ficha.
+- [ ] Opcional pero recomendado: agrega **en-US** como segundo idioma de
+      ficha con los textos de `en/01-store-listing.md` — la app ya soporta
+      inglés completo, así que el listado en inglés ya no sería solo
+      cosmético.
 
 ### E. Primera versión (internal testing)
 - [ ] Reemplazar IDs de AdMob y clave de RevenueCat (bloqueadores 1–3).
@@ -83,9 +108,11 @@ desde la carpeta `docs/`):
       notas de la versión (archivo 06), agregar tu correo a la lista de
       testers internos.
 - [ ] Instalar desde el link de opt-in y verificar: onboarding, registro de
-      días, sync con Google, anuncios (con dispositivo de prueba) y compra
+      días, sync con Google, anuncios (con dispositivo de prueba), compra
       de suscripción (con tester de licencias en Play Console →
-      Configuración → Pruebas de licencias).
+      Configuración → Pruebas de licencias) y el cambio de idioma
+      ES/EN desde Configuración General (revisa que el nombre del
+      challenge creado por preset y las alertas cambien de idioma también).
 
 ### F. Prueba cerrada → Producción
 - [ ] Promover a prueba cerrada, cumplir el requisito de 12 testers/14 días

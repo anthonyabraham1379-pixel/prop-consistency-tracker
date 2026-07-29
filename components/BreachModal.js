@@ -4,11 +4,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import PrimaryButton from './PrimaryButton';
 
 export default function BreachModal({ visible, onRestart, onSave, onDelete }) {
   const insets = useSafeAreaInsets();
+  const strings = useStrings();
 
   return (
     <Modal visible={visible} animationType="slide" transparent>

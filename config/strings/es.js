@@ -1,9 +1,12 @@
 /**
- * Textos de UI centralizados en español (mercado objetivo inicial V1).
- * Mantener todo el copy visible al usuario aquí para poder
- * internacionalizar más adelante sin tocar las pantallas.
+ * Textos de UI en español (mercado objetivo inicial V1).
  */
-export const strings = {
+export const es = {
+  common: {
+    cancel: 'Cancelar',
+    delete: 'Eliminar',
+    noActiveAccount: 'No hay ninguna cuenta activa.',
+  },
   tabs: {
     dashboard: 'Dashboard',
     settings: 'Configuración',
@@ -13,6 +16,9 @@ export const strings = {
     title: 'Configura tu cuenta',
     subtitle: 'Define los parámetros de tu evaluación o cuenta fondeada',
     presetLabel: 'Elige un punto de partida',
+    presetDisclaimer:
+      'Verifica siempre las reglas actuales de tu firm — estos valores son solo un punto de partida.',
+    presetStarterLabel: 'Plantilla 100k',
     nameLabel: 'Nombre de la cuenta',
     namePlaceholder: 'Ej. Mi cuenta 100k',
     accountSizeLabel: 'Tamaño de cuenta',
@@ -71,6 +77,7 @@ export const strings = {
     noTradesForDay: 'Sin trades este día',
     dayTotal: 'Total del día',
     accountsLabel: 'Cuenta',
+    tradeLabel: 'Trade',
     allTimeTitle: 'Resumen histórico (All Time)',
     allTimeNetPnl: 'P&L total',
     allTimeTrades: 'Trades totales',
@@ -111,10 +118,60 @@ export const strings = {
     expectancyLabel: 'Expectativa',
     emptyState: 'No hay trades en este periodo.',
   },
+  dashboard: {
+    noConsistencyRule: 'Sin regla de consistencia configurada',
+    withinLimit: 'Cumples el límite de {limit}%',
+    overLimit: 'Excede el límite de {limit}%',
+    totalProfit: 'Ganancia total',
+    targetProgress: 'Progreso a meta',
+    bestDay: 'Mejor día',
+    drawdownUsed: 'Drawdown usado',
+    floorLabel: 'Piso: {value}',
+    daysOperated: 'Días operados:',
+    profitable: 'Rentables:',
+    minSuffix: 'mín.',
+    recentTrades: 'Últimos trades',
+    registerDay: '+ Registrar día',
+  },
+  settings: {
+    yourAccounts: 'Tus cuentas',
+    addAccount: 'Agregar cuenta nueva',
+    editParamsEyebrow: 'EDITAR PARÁMETROS',
+    saveChanges: 'Guardar cambios',
+    saved: 'Guardado ✓',
+    deleteLink: 'Eliminar esta cuenta/challenge',
+    deleteConfirmTitle: 'Eliminar esta cuenta/challenge',
+    deleteConfirmBody: 'Se borrará "{name}" y todo su historial de días. Esta acción no se puede deshacer.',
+    deleteConfirmAction: 'Eliminar',
+  },
+  accountSwitcher: {
+    title: 'Cambiar de cuenta',
+  },
+  addDay: {
+    title: 'Registrar día',
+    resultLabel: 'Resultado del día',
+    gain: 'Ganancia',
+    loss: 'Pérdida',
+    amountLabel: 'Monto',
+    dateTimeLabel: 'Fecha y hora',
+    applyToAccounts: 'Aplicar a estas cuentas',
+    submit: 'Guardar día',
+  },
+  editTrade: {
+    title: 'Editar trade',
+    saveChanges: 'Guardar cambios',
+    deleteLink: 'Eliminar este trade',
+    deleteConfirmTitle: 'Eliminar trade',
+    deleteConfirmBody: 'Esta acción no se puede deshacer.',
+  },
   generalSettings: {
     title: 'Configuración general',
     generalSection: 'GENERAL',
     hidePnl: 'Ocultar P&L por privacidad',
+    languageSection: 'IDIOMA',
+    languageLabel: 'Idioma de la app',
+    languageSpanish: 'Español',
+    languageEnglish: 'English',
     accountSection: 'CUENTA',
     googleLogin: 'Iniciar sesión con Google',
     signOut: 'Cerrar sesión',

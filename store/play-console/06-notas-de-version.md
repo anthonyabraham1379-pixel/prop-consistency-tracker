@@ -24,6 +24,7 @@ Primera versión de Prop Consistency Tracker:
 • Estadísticas de rendimiento
 • Multi-cuenta: varios challenges a la vez
 • Sincronización opcional con tu cuenta de Google
+• Traducción completa al inglés — cambia el idioma desde Configuración
 </es-419>
 <en-US>
 First release of Prop Consistency Tracker:
@@ -34,6 +35,7 @@ First release of Prop Consistency Tracker:
 • Performance analytics
 • Multi-account: track several challenges at once
 • Optional sync with your Google account
+• Full English translation — switch language from Settings
 </en-US>
 ```
 

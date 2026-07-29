@@ -3,18 +3,20 @@ import { Modal, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../config/theme';
+import { useStrings } from '../config/strings';
 import IconButton from './IconButton';
 import PresetCard from './PresetCard';
 
 export default function AccountSwitcherModal({ visible, challenges, activeChallengeId, onSelect, onClose }) {
   const insets = useSafeAreaInsets();
+  const strings = useStrings();
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={[styles.sheet, { paddingBottom: theme.spacing(4) + insets.bottom }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Cambiar de cuenta</Text>
+            <Text style={styles.title}>{strings.accountSwitcher.title}</Text>
             <IconButton name="close" onPress={onClose} />
           </View>
 

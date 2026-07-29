@@ -5,18 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { usePremium } from '../context/PremiumContext';
-
-const FEATURES = [
-  { label: strings.premium.featureCalendar, free: true, premium: true },
-  { label: strings.premium.featureDrawdown, free: true, premium: true },
-  { label: strings.premium.featureNoAds, free: false, premium: true },
-  { label: strings.premium.featureAdvancedAnalytics, free: false, premium: true },
-  { label: strings.premium.featureMultiAccount, free: false, premium: true },
-  { label: strings.premium.featureExport, free: false, premium: true },
-  { label: strings.premium.featureScreenshots, free: false, premium: true },
-];
 
 function FeatureCheck({ value }) {
   return (
@@ -31,9 +21,20 @@ function FeatureCheck({ value }) {
 export default function PaywallScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const strings = useStrings();
   const { offerings, purchasePackage, restorePurchases, isPremium } = usePremium();
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
+
+  const FEATURES = [
+    { label: strings.premium.featureCalendar, free: true, premium: true },
+    { label: strings.premium.featureDrawdown, free: true, premium: true },
+    { label: strings.premium.featureNoAds, free: false, premium: true },
+    { label: strings.premium.featureAdvancedAnalytics, free: false, premium: true },
+    { label: strings.premium.featureMultiAccount, free: false, premium: true },
+    { label: strings.premium.featureExport, free: false, premium: true },
+    { label: strings.premium.featureScreenshots, free: false, premium: true },
+  ];
 
   const monthlyPackage =
     offerings?.current?.monthly ?? offerings?.current?.availablePackages?.[0] ?? null;

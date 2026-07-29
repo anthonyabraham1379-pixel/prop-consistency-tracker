@@ -3,6 +3,7 @@ import { Modal, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../config/theme';
+import { useStrings } from '../config/strings';
 import IconButton from './IconButton';
 import FieldLabel from './FieldLabel';
 import NumField from './NumField';
@@ -11,13 +12,9 @@ import CheckRow from './CheckRow';
 import DateTimeField from './DateTimeField';
 import PrimaryButton from './PrimaryButton';
 
-const SIGN_OPTIONS = [
-  { label: 'Ganancia', value: 'gain' },
-  { label: 'Pérdida', value: 'loss' },
-];
-
 export default function AddDayModal({ visible, onClose, onSubmit, challenges, activeChallengeId }) {
   const insets = useSafeAreaInsets();
+  const strings = useStrings();
   const [sign, setSign] = useState('gain');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(new Date());
@@ -38,6 +35,11 @@ export default function AddDayModal({ visible, onClose, onSubmit, challenges, ac
 
   const canSubmit = !!amount && selectedIds.length > 0;
 
+  const SIGN_OPTIONS = [
+    { label: strings.addDay.gain, value: 'gain' },
+    { label: strings.addDay.loss, value: 'loss' },
+  ];
+
   const handleSubmit = () => {
     const magnitude = Number(amount) || 0;
     if (magnitude === 0 || selectedIds.length === 0) return;
@@ -50,20 +52,20 @@ export default function AddDayModal({ visible, onClose, onSubmit, challenges, ac
       <View style={styles.backdrop}>
         <View style={[styles.sheet, { paddingBottom: theme.spacing(4) + insets.bottom }]}>
           <View style={styles.header}>
-            <Text style={styles.title}>Registrar día</Text>
+            <Text style={styles.title}>{strings.addDay.title}</Text>
             <IconButton name="close" onPress={onClose} />
           </View>
 
-          <FieldLabel>Resultado del día</FieldLabel>
+          <FieldLabel>{strings.addDay.resultLabel}</FieldLabel>
           <SegmentedControl options={SIGN_OPTIONS} value={sign} onChange={setSign} />
 
-          <NumField label="Monto" value={amount} onChange={setAmount} prefix="$" />
+          <NumField label={strings.addDay.amountLabel} value={amount} onChange={setAmount} prefix="$" />
 
-          <DateTimeField label="Fecha y hora" value={date} onChange={setDate} />
+          <DateTimeField label={strings.addDay.dateTimeLabel} value={date} onChange={setDate} />
 
           {challenges.length > 1 && (
             <>
-              <FieldLabel style={styles.accountsLabel}>Aplicar a estas cuentas</FieldLabel>
+              <FieldLabel style={styles.accountsLabel}>{strings.addDay.applyToAccounts}</FieldLabel>
               {challenges.map((c) => (
                 <CheckRow
                   key={c.id}
@@ -76,7 +78,7 @@ export default function AddDayModal({ visible, onClose, onSubmit, challenges, ac
           )}
 
           <PrimaryButton
-            label="Guardar día"
+            label={strings.addDay.submit}
             onPress={handleSubmit}
             style={styles.submitButton}
             disabled={!canSubmit}

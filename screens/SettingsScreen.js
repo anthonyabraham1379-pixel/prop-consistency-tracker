@@ -12,34 +12,35 @@ import PresetCard from '../components/PresetCard';
 import IconButton from '../components/IconButton';
 import PrimaryButton from '../components/PrimaryButton';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
 import { usePremium } from '../context/PremiumContext';
 import { getTotalProfit } from '../utils/calculations';
 import { formatDate, formatMoney } from '../utils/format';
 
-const CONSISTENCY_MODE_OPTIONS = [
-  { label: strings.onboarding.consistencyNone, value: 'none' },
-  { label: strings.onboarding.consistencyWithLimit, value: 'limit' },
-];
-
-const ACCOUNT_STATUS_OPTIONS = [
-  { label: strings.accountStatus.evaluation, value: 'evaluation' },
-  { label: strings.accountStatus.funded, value: 'funded' },
-];
-
-const DRAWDOWN_TYPE_OPTIONS = [
-  { label: strings.onboarding.drawdownTypeStatic, value: 'static' },
-  { label: strings.onboarding.drawdownTypeTrailing, value: 'trailing' },
-];
-
 export default function SettingsScreen() {
   const navigation = useNavigation();
+  const strings = useStrings();
   const { activeChallenge, challenges, setActiveChallenge, updateChallenge, deleteChallenge, upgradeToFunded } =
     useChallenges();
   const { isPremium } = usePremium();
   const [form, setForm] = useState(activeChallenge);
   const [saved, setSaved] = useState(false);
+
+  const CONSISTENCY_MODE_OPTIONS = [
+    { label: strings.onboarding.consistencyNone, value: 'none' },
+    { label: strings.onboarding.consistencyWithLimit, value: 'limit' },
+  ];
+
+  const ACCOUNT_STATUS_OPTIONS = [
+    { label: strings.accountStatus.evaluation, value: 'evaluation' },
+    { label: strings.accountStatus.funded, value: 'funded' },
+  ];
+
+  const DRAWDOWN_TYPE_OPTIONS = [
+    { label: strings.onboarding.drawdownTypeStatic, value: 'static' },
+    { label: strings.onboarding.drawdownTypeTrailing, value: 'trailing' },
+  ];
 
   useEffect(() => {
     setForm(activeChallenge);
@@ -49,7 +50,7 @@ export default function SettingsScreen() {
     return (
       <Screen>
         <ScreenHeader title={strings.tabs.settings} />
-        <Text style={styles.emptyText}>No hay ninguna cuenta activa.</Text>
+        <Text style={styles.emptyText}>{strings.common.noActiveAccount}</Text>
       </Screen>
     );
   }
@@ -80,19 +81,19 @@ export default function SettingsScreen() {
   const handleStatusChange = (value) => {
     if (value !== 'funded' || activeChallenge.status === 'funded') return;
     Alert.alert(strings.accountStatus.confirmTitle, strings.accountStatus.confirmBody, [
-      { text: 'Cancelar', style: 'cancel' },
+      { text: strings.common.cancel, style: 'cancel' },
       { text: strings.accountStatus.confirmAction, onPress: () => upgradeToFunded(activeChallenge.id) },
     ]);
   };
 
   const handleDelete = () => {
     Alert.alert(
-      'Eliminar esta cuenta/challenge',
-      `Se borrará "${activeChallenge.name}" y todo su historial de días. Esta acción no se puede deshacer.`,
+      strings.settings.deleteConfirmTitle,
+      strings.settings.deleteConfirmBody.replace('{name}', activeChallenge.name),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: strings.common.cancel, style: 'cancel' },
         {
-          text: 'Eliminar',
+          text: strings.settings.deleteConfirmAction,
           style: 'destructive',
           onPress: () => {
             const wasLast = challenges.length <= 1;
@@ -113,7 +114,7 @@ export default function SettingsScreen() {
         right={<IconButton name="settings-outline" onPress={() => navigation.navigate('GeneralSettings')} />}
       />
 
-      <FieldLabel>Tus cuentas</FieldLabel>
+      <FieldLabel>{strings.settings.yourAccounts}</FieldLabel>
       <View style={styles.accountList}>
         {challenges.map((c) => (
           <PresetCard
@@ -128,7 +129,7 @@ export default function SettingsScreen() {
           onPress={() => {
             if (!isPremium && challenges.length >= 1) {
               Alert.alert(strings.premium.accountLimitTitle, strings.premium.accountLimitBody, [
-                { text: 'Cancelar', style: 'cancel' },
+                { text: strings.common.cancel, style: 'cancel' },
                 { text: strings.premium.title, onPress: () => navigation.navigate('Paywall') },
               ]);
               return;
@@ -141,13 +142,13 @@ export default function SettingsScreen() {
             size={18}
             color={theme.colors.accent}
           />
-          <Text style={styles.addAccountLabel}>Agregar cuenta nueva</Text>
+          <Text style={styles.addAccountLabel}>{strings.settings.addAccount}</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.divider} />
 
-      <ScreenHeader eyebrow="EDITAR PARÁMETROS" title={activeChallenge.name} />
+      <ScreenHeader eyebrow={strings.settings.editParamsEyebrow} title={activeChallenge.name} />
 
       <FieldLabel>{strings.accountStatus.label}</FieldLabel>
       {activeChallenge.status === 'funded' ? (
@@ -248,13 +249,13 @@ export default function SettingsScreen() {
       )}
 
       <PrimaryButton
-        label={saved ? 'Guardado ✓' : 'Guardar cambios'}
+        label={saved ? strings.settings.saved : strings.settings.saveChanges}
         onPress={handleSave}
         style={styles.saveButton}
       />
 
       <Text style={styles.deleteButton} onPress={handleDelete}>
-        Eliminar esta cuenta/challenge
+        {strings.settings.deleteLink}
       </Text>
     </Screen>
   );

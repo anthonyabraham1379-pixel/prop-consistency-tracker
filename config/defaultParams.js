@@ -28,7 +28,7 @@ export const EMPTY_CHALLENGE = {
  */
 export const FIRM_PRESETS = [
   {
-    label: 'Plantilla 100k',
+    key: 'starter100k',
     accountSize: 100000,
     profitTarget: 6000,
     maxDrawdown: 3000,
@@ -37,7 +37,7 @@ export const FIRM_PRESETS = [
     minProfitableDays: 3,
   },
   {
-    label: 'Personalizado',
+    key: 'custom',
     accountSize: null,
     profitTarget: null,
     maxDrawdown: null,

@@ -10,18 +10,11 @@ import PresetCard from '../components/PresetCard';
 import SegmentedControl from '../components/SegmentedControl';
 import EditTradeModal from '../components/EditTradeModal';
 import { theme } from '../config/theme';
-import { strings } from '../config/strings';
+import { useStrings } from '../config/strings';
 import { useChallenges } from '../context/ChallengesContext';
 import { usePremium } from '../context/PremiumContext';
 import { groupTradesByDay, getTotalProfit } from '../utils/calculations';
 import { formatDate, formatMoney } from '../utils/format';
-
-const PERIOD_OPTIONS = [
-  { label: strings.analytics.periodWeek, value: 'week' },
-  { label: strings.analytics.periodMonth, value: 'month' },
-  { label: strings.analytics.periodYear, value: 'year' },
-  { label: strings.analytics.periodAll, value: 'all' },
-];
 
 function isSameCalendarDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -48,9 +41,17 @@ function getMonthTrades(trades, year, month) {
 
 export default function CalendarScreen() {
   const navigation = useNavigation();
+  const strings = useStrings();
   const { challenges, activeChallenge, setActiveChallenge, updateTrade, deleteTrade } = useChallenges();
   const { isPremium } = usePremium();
   const [period, setPeriod] = useState('month');
+
+  const PERIOD_OPTIONS = [
+    { label: strings.analytics.periodWeek, value: 'week' },
+    { label: strings.analytics.periodMonth, value: 'month' },
+    { label: strings.analytics.periodYear, value: 'year' },
+    { label: strings.analytics.periodAll, value: 'all' },
+  ];
   const lockedPeriods = isPremium ? [] : ['year', 'all'];
   const [cursorDate, setCursorDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(null);
@@ -72,7 +73,7 @@ export default function CalendarScreen() {
     return (
       <Screen>
         <ScreenHeader title={strings.calendar.title} onBack={() => navigation.goBack()} />
-        <Text style={styles.emptyText}>No hay ninguna cuenta activa.</Text>
+        <Text style={styles.emptyText}>{strings.common.noActiveAccount}</Text>
       </Screen>
     );
   }
@@ -158,6 +159,7 @@ export default function CalendarScreen() {
 
       {period === 'week' && (
         <WeekView
+          strings={strings}
           weekStart={getWeekStart(cursorDate)}
           dayTotalsMap={dayTotalsMap}
           selectedDate={selectedDate}
@@ -167,6 +169,7 @@ export default function CalendarScreen() {
 
       {period === 'month' && (
         <MonthGrid
+          strings={strings}
           year={year}
           month={month}
           dayTotalsMap={dayTotalsMap}
@@ -175,9 +178,11 @@ export default function CalendarScreen() {
         />
       )}
 
-      {period === 'year' && <YearView year={year} trades={trades} onSelectMonth={(m) => goToMonth(year, m)} />}
+      {period === 'year' && (
+        <YearView strings={strings} year={year} trades={trades} onSelectMonth={(m) => goToMonth(year, m)} />
+      )}
 
-      {period === 'all' && <AllTimeView trades={trades} />}
+      {period === 'all' && <AllTimeView strings={strings} trades={trades} />}
 
       {(period === 'week' || period === 'month') && selectedDate && (
         <>
@@ -196,7 +201,7 @@ export default function CalendarScreen() {
             <View style={styles.tradesList}>
               {selectedDayTrades.map((t) => (
                 <TouchableOpacity key={t.id} style={styles.tradeRow} onPress={() => setEditingTrade(t)}>
-                  <Text style={styles.tradeLabel}>Trade</Text>
+                  <Text style={styles.tradeLabel}>{strings.calendar.tradeLabel}</Text>
                   <Text style={[styles.tradeAmount, { color: t.amount >= 0 ? theme.colors.positive : theme.colors.negative }]}>
                     {t.amount >= 0 ? '+' : ''}
                     {formatMoney(t.amount)}
@@ -219,7 +224,7 @@ export default function CalendarScreen() {
   );
 }
 
-function WeekView({ weekStart, dayTotalsMap, selectedDate, onSelectDate }) {
+function WeekView({ strings, weekStart, dayTotalsMap, selectedDate, onSelectDate }) {
   const days = [];
   for (let i = 0; i < 7; i++) {
     const d = new Date(weekStart);
@@ -265,7 +270,7 @@ function WeekView({ weekStart, dayTotalsMap, selectedDate, onSelectDate }) {
   );
 }
 
-function MonthGrid({ year, month, dayTotalsMap, selectedDate, onSelectDate }) {
+function MonthGrid({ strings, year, month, dayTotalsMap, selectedDate, onSelectDate }) {
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells = [];
@@ -318,7 +323,7 @@ function MonthGrid({ year, month, dayTotalsMap, selectedDate, onSelectDate }) {
   );
 }
 
-function YearView({ year, trades, onSelectMonth }) {
+function YearView({ strings, year, trades, onSelectMonth }) {
   return (
     <View style={styles.yearList}>
       {strings.calendar.months.map((label, m) => {
@@ -343,7 +348,7 @@ function YearView({ year, trades, onSelectMonth }) {
   );
 }
 
-function AllTimeView({ trades }) {
+function AllTimeView({ strings, trades }) {
   if (trades.length === 0) {
     return <Text style={styles.emptyText}>{strings.calendar.emptyState}</Text>;
   }

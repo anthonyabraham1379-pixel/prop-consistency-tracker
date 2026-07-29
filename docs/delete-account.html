@@ -27,6 +27,17 @@
     margin: 0 auto;
     padding: 48px 20px 80px;
   }
+  .langSwitch {
+    font-size: 12.5px;
+    margin-bottom: 24px;
+  }
+  .langSwitch a {
+    color: var(--text-muted);
+  }
+  .langSwitch a.active {
+    color: var(--accent);
+    font-weight: 600;
+  }
   h1 {
     font-size: 26px;
     margin-bottom: 4px;
@@ -81,6 +92,10 @@
 </head>
 <body>
   <div class="wrap">
+    <div class="langSwitch">
+      <a href="./delete-account-en.html">English</a> · <a href="./delete-account.html" class="active">Español</a>
+    </div>
+
     <h1>Eliminación de cuenta y datos</h1>
     <div class="updated">Prop Consistency Tracker · com.anthonyaal.propconsistencytracker</div>
 
