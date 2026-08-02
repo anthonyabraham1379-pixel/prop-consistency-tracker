@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Prop Consistency Tracker",
+    "name": "Vencia",
     "slug": "prop-consistency-tracker",
     "version": "1.0.0",
     "scheme": "propconsistencytracker",
@@ -11,7 +11,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.anthonyaal.propconsistencytracker",
+      "package": "prop.tracker",
       "adaptiveIcon": {
         "backgroundColor": "#08090D",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -28,18 +28,25 @@
       [
         "react-native-google-mobile-ads",
         {
-          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "androidAppId": "ca-app-pub-9426422393740746~3165470957",
           "iosAppId": "ca-app-pub-3940256099942544~1458002511"
         }
       ],
+      "expo-sharing",
       [
-        "expo-build-properties",
+        "expo-splash-screen",
         {
-          "android": {
-            "kotlinVersion": "2.3.0"
+          "backgroundColor": "#000000",
+          "image": "./assets/splash-transparent.png",
+          "imageWidth": 1,
+          "dark": {
+            "backgroundColor": "#000000",
+            "image": "./assets/splash-transparent.png"
           }
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-localization"
     ],
     "extra": {
       "eas": {
