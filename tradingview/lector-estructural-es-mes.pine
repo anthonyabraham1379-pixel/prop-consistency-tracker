@@ -73,7 +73,8 @@ i_roomR     = input.float(1.5, "· Espacio mínimo (× distancia mínima de inva
 // --- 4 · detección estructural ----------------------------------------------
 i_tolTicks  = input.int(4, "Tolerancia de barrida / retesteo (ticks)", minval = 0, maxval = 100, group = G_STR)
 i_wick      = input.float(0.50, "Mecha mínima de rechazo (proporción del rango de la vela)", minval = 0.10, maxval = 0.90, step = 0.05, group = G_STR)
-i_dispTicks = input.int(8, "Desplazamiento mínimo tras la ruptura (ticks)", minval = 0, maxval = 400, group = G_STR)
+i_dispTicks = input.int(12, "Desplazamiento mínimo tras la ruptura (ticks)", minval = 0, maxval = 400, group = G_STR)
+i_maxRetestTicks = input.int(12, "Ancho máximo de zona de retesteo (ticks)", minval = 1, maxval = 100, group = G_STR)
 i_lookback  = input.int(20, "Ventana de la estructura del pullback (velas)", minval = 3, maxval = 200, group = G_STR)
 i_maxBars   = input.int(30, "Velas máximas por fase antes de expirar", minval = 3, maxval = 500, group = G_STR)
 i_confirm   = input.bool(true, "Confirmar sólo con velas cerradas (anti-repintado)", group = G_STR)
@@ -101,9 +102,10 @@ cOff  = input.color(#4f5966, "Color · estructura invalidada",           group =
 // =============================================================================
 // 2 · CÁLCULOS BÁSICOS
 // =============================================================================
-tick = syminfo.mintick
-tol  = i_tolTicks  * tick
-disp = i_dispTicks * tick
+tick      = syminfo.mintick
+tol       = i_tolTicks  * tick
+disp      = i_dispTicks * tick
+maxRetest = i_maxRetestTicks * tick   // techo del ancho de la zona de retesteo
 
 // --- sesiones ----------------------------------------------------------------
 inRTH   = not na(time(timeframe.period, i_sesRTH, i_tz))
@@ -344,6 +346,8 @@ type Seq
     float  zLo       = na     // zona de ruptura / retesteo
     float  zHi       = na
     bool   moved     = false  // desplazamiento mínimo alcanzado
+    int    movedBar  = -1     // vela que confirmó el desplazamiento mínimo
+    int    lastEvtBar = -1    // vela del último arranque de secuencia
     float  refPx     = na     // referencia estructural al completarse
     float  invPx     = na     // nivel de invalidación
     float  dist      = na     // distancia de invalidación en puntos
@@ -359,29 +363,40 @@ type Seq
 var Seq seqUp = Seq.new()   // secuencia nacida de una barrida por ARRIBA
 var Seq seqDn = Seq.new()   // secuencia nacida de una barrida por ABAJO
 
-// --- eventos en los niveles · 0 nada · 1 nivel alcanzado · 2 barrida · 3 rechazo
+// --- eventos en los niveles --------------------------------------------------
+//  rango interno de prioridad : 3 barrida · 2 rechazo · 1 sólo contacto
+//  evento devuelto            : 2 POSIBLE BARRIDA · 3 RECHAZO DETECTADO ·
+//                               1 NIVEL ALCANZADO · 0 nada
+//  La barrida real tiene prioridad sobre el rechazo, tanto en la misma vela
+//  como frente a un rechazo en otro nivel.
 f_scan(bool upper) =>
-    int    best = 0
+    int    rank = 0
     float  bp   = na
     string bn   = ""
     if array.size(lvlP) > 0
         for i = 0 to array.size(lvlP) - 1
             L  = array.get(lvlP, i)
+            // contacto: el extremo de la vela entra en la banda del nivel
             tU = high >= L - tol and high <= L + tol
             tD = low  <= L + tol and low  >= L - tol
+            // barrida: se atraviesa el nivel y la vela cierra de vuelta dentro
             sU = high > L + tol and close < L and close[1] <= L + tol
             sD = low  < L - tol and close > L and close[1] >= L - tol
-            rU = high >= L - tol and close < L and wickUp >= i_wick
-            rD = low  <= L + tol and close > L and wickDn >= i_wick
+            // rechazo: contacto REAL con el nivel (banda estricta por ambos
+            // lados), cierre del lado correcto y mecha mínima configurable.
+            // Una mecha grande lejos del nivel ya no cuenta como rechazo.
+            rU = tU and close < L and wickUp >= i_wick
+            rD = tD and close > L and wickDn >= i_wick
             touched = upper ? tU : tD
             swept   = upper ? sU : sD
             rejec   = upper ? rU : rD
-            t = rejec ? 3 : swept ? 2 : touched ? 1 : 0
-            if t > best
-                best := t
+            r = swept ? 3 : rejec ? 2 : touched ? 1 : 0
+            if r > rank
+                rank := r
                 bp   := L
                 bn   := array.get(lvlN, i)
-    [best, bp, bn]
+    evt = rank == 3 ? 2 : rank == 2 ? 3 : rank == 1 ? 1 : 0
+    [evt, bp, bn]
 
 [evtUp, lvlUpP, lvlUpN] = f_scan(true)
 [evtDn, lvlDnP, lvlDnN] = f_scan(false)
@@ -401,27 +416,42 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
 
     // --- reinicio opcional en la apertura de la sesión regular ---------------
     if i_resetSes and rthOpen
-        s.phase   := 0
-        s.fails   := 0
-        s.failLvl := na
-        s.doneLvl := na
-        s.r1      := false
-        s.note    := ""
-        s.missing := ""
-        s.warn    := ""
+        s.phase     := 0
+        s.fails     := 0
+        s.failLvl   := na
+        s.doneLvl   := na
+        s.r1        := false
+        s.note      := ""
+        s.missing   := ""
+        s.warn      := ""
+        s.ext       := na
+        s.structLvl := na
+        s.zLo       := na
+        s.zHi       := na
+        s.moved     := false
 
     if analyzing
         // --- caducidad de la fase actual -------------------------------------
         if s.phase > 0 and s.phase < 5 and bar_index - s.tBar > i_maxBars
-            s.phase   := 0
-            s.note    := "SECUENCIA EXPIRADA"
-            s.missing := ""
+            s.phase     := 0
+            s.note      := "SECUENCIA EXPIRADA"
+            s.missing   := ""
+            s.moved     := false
+            s.ext       := na
+            s.structLvl := na
+            s.zLo       := na
+            s.zHi       := na
 
-        // --- invalidación: se pierde el extremo de la barrida ----------------
+        // --- invalidación: se pierde el EXTREMO CONGELADO de la barrida ------
+        //     s.ext no se recalcula nunca: es el high (o low) de la vela de
+        //     detección, así que esta comparación es siempre contra el mismo
+        //     precio desde que arrancó la secuencia.
         beyond  = upper ? close > nz(s.ext, close) + tol : close < nz(s.ext, close) - tol
         lostExt = s.phase >= 2 and not na(s.ext) and beyond
 
         if lostExt
+            // Sólo cuenta como FALLA una estructura que llegó a completarse;
+            // una fase intermedia invalidada no suma al contador.
             if s.phase == 5
                 sameZone  = not na(s.failLvl) and math.abs(s.failLvl - s.lvl) <= i_sameLvlPts
                 s.fails   := sameZone ? s.fails + 1 : 1
@@ -431,14 +461,19 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     s.warn := "SEGUNDA FALLA EN LA MISMA ZONA"
                 if s.fails >= i_maxFails
                     s.warn := s.warn == "" ? "PAUSA Y ESPERAR NUEVA ESTRUCTURA" : s.warn + " · PAUSA Y ESPERAR NUEVA ESTRUCTURA"
-            s.phase   := 0
-            s.note    := "ESTRUCTURA INVALIDADA"
-            s.missing := ""
-            s.moved   := false
+            s.phase     := 0
+            s.note      := "ESTRUCTURA INVALIDADA"
+            s.missing   := ""
+            s.moved     := false
+            s.ext       := na
+            s.structLvl := na
+            s.zLo       := na
+            s.zHi       := na
             ev := 8
             f_tag(bar_index, upper ? high : low, "ESTRUCTURA INVALIDADA", cOff, not upper)
         else
-            starting = (s.phase <= 1 or s.phase == 5) and evt >= 2
+            // Una misma vela no puede arrancar dos veces la secuencia.
+            starting = (s.phase <= 1 or s.phase == 5) and evt >= 2 and bar_index > s.lastEvtBar
 
             // ============ arranque de secuencia: barrida o rechazo ===========
             if starting
@@ -450,13 +485,18 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                 slDn = (not na(lastPH) and lastPH > close) ? lastPH : hiN
                 s.lvl       := elvl
                 s.lvlName   := ename
+                // EXTREMO CONGELADO: se fija aquí, en la vela de detección de
+                // la barrida o del rechazo, y no vuelve a tocarse en las fases
+                // 2, 3, 4 ni 5. Es el punto de invalidación de la secuencia.
                 s.ext       := upper ? high : low
                 s.structLvl := upper ? slUp : slDn
                 s.zLo       := na
                 s.zHi       := na
                 s.moved     := false
+                s.movedBar  := -1
                 s.phase     := 2
                 s.tBar      := bar_index
+                s.lastEvtBar := bar_index
                 s.note      := evt == 3 ? "RECHAZO DETECTADO" : "POSIBLE BARRIDA"
                 s.missing   := "FALTA RUPTURA"
                 ev := evt
@@ -478,16 +518,27 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
 
             // ============ fase 2 · esperando la ruptura ======================
             else if s.phase == 2
-                s.ext := upper ? math.max(nz(s.ext, high), high) : math.min(nz(s.ext, low), low)
+                // s.ext NO se actualiza aquí: sigue congelado desde la vela de
+                // detección (ver el arranque de secuencia).
                 broke = upper ? close < s.structLvl - tol : close > s.structLvl + tol
                 if broke
-                    s.zLo     := upper ? s.structLvl - tol : math.min(low, s.structLvl - tol)
-                    s.zHi     := upper ? math.max(high, s.structLvl + tol) : s.structLvl + tol
-                    s.phase   := 3
-                    s.tBar    := bar_index
-                    s.moved   := false
-                    s.note    := "RUPTURA ESTRUCTURAL"
-                    s.missing := "FALTA RETESTEO"
+                    // Zona de retesteo acotada por maxRetest: una vela de
+                    // desplazamiento enorme no puede convertir toda su amplitud
+                    // en zona válida.
+                    if upper
+                        s.zLo := s.structLvl - tol
+                        s.zHi := math.min(math.max(high, s.structLvl + tol), s.zLo + maxRetest)
+                    else
+                        s.zHi := s.structLvl + tol
+                        s.zLo := math.max(math.min(low, s.structLvl - tol), s.zHi - maxRetest)
+                    if s.zHi <= s.zLo          // garantía de zona no degenerada
+                        s.zHi := s.zLo + tick
+                    s.phase    := 3
+                    s.tBar     := bar_index
+                    s.moved    := false
+                    s.movedBar := -1
+                    s.note     := "RUPTURA ESTRUCTURAL"
+                    s.missing  := "FALTA RETESTEO"
                     ev := 4
                     f_box(bar_index, s.zHi, bar_index + i_maxBars, s.zLo, cNeu, 88)
                     f_tag(bar_index, upper ? low : high, "RUPTURA ESTRUCTURAL", cNeu, upper)
@@ -496,11 +547,14 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
             else if s.phase == 3
                 despl = upper ? low <= s.zLo - disp : high >= s.zHi + disp
                 if not s.moved and despl
-                    s.moved := true
-                    s.note  := "ESPERANDO RETESTEO"
+                    s.moved    := true
+                    s.movedBar := bar_index
+                    s.note     := "ESPERANDO RETESTEO"
                     ev := 5
                 vuelve = upper ? high >= s.zLo : low <= s.zHi
-                if s.moved and vuelve
+                // El retesteo sólo puede observarse en una vela POSTERIOR a la
+                // que confirmó el desplazamiento mínimo.
+                if s.moved and vuelve and bar_index > s.movedBar
                     s.phase   := 4
                     s.tBar    := bar_index
                     s.note    := "RETESTEO EN OBSERVACIÓN"
@@ -526,9 +580,9 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     repetid = not na(s.doneLvl) and math.abs(s.doneLvl - s.lvl) <= i_sameLvlPts
                     s.phase   := 5
                     s.tBar    := bar_index
-                    s.refPx   := close
-                    s.invPx   := upper ? s.ext + tol : s.ext - tol
-                    s.dist    := math.abs(s.invPx - s.refPx)
+                    s.refPx   := close                                  // referencia estructural neutral
+                    s.invPx   := upper ? s.ext + tol : s.ext - tol       // desde el extremo CONGELADO
+                    s.dist    := math.abs(s.invPx - s.refPx)             // distancia de invalidación
                     s.ctxDone := ctxNow
                     s.note    := ctxNow == 2 ? "ESTRUCTURA A+" : "ESTRUCTURA COMPLETA"
                     s.missing := ""
@@ -543,7 +597,7 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     txt   = s.note + " · " + s.lvlName + "\n" + f_ctxTxt(ctxNow)
                     f_tag(bar_index, upper ? low : high, txt, cDone, upper)
                     dTxt = str.tostring(s.dist, format.mintick) + " pts / " + str.tostring(int(math.round(s.dist / tick))) + " ticks"
-                    f_ref(s.invPx, "INVALIDACIÓN · " + dTxt, cWarn, false)
+                    f_ref(s.invPx, "INVALIDACIÓN ESTRUCTURAL · " + dTxt, cWarn, false)
                     f_ref(s.refPx, "REFERENCIA ESTRUCTURAL", cDone, true)
                     if i_showRefs
                         r1px = upper ? s.refPx - s.dist     : s.refPx + s.dist
@@ -679,7 +733,7 @@ if i_showTable and barstate.islast
     f_cell(1, 5, f_lvlTxt(seqUp), bgRow, cLvl)
     f_cell(2, 5, f_lvlTxt(seqDn), bgRow, cLvl)
 
-    f_cell(0, 6, "Distancia de invalidación", bgRow, cKey)
+    f_cell(0, 6, "DISTANCIA DE INVALIDACIÓN", bgRow, cKey)
     f_cell(1, 6, f_distTxt(seqUp), bgRow, ruidoUp ? cWarn : cLvl)
     f_cell(2, 6, f_distTxt(seqDn), bgRow, ruidoDn ? cWarn : cLvl)
 

@@ -46,11 +46,11 @@ operativa.
 | **NIVEL ALCANZADO** | El precio llega a un nivel de referencia dentro de la tolerancia, sin superarlo. | Gris |
 | **POSIBLE BARRIDA** | El precio supera el nivel y **cierra** de vuelta dentro de la zona. | Amarillo |
 | **RECHAZO DETECTADO** | Cierre del lado correcto del nivel con una mecha ≥ al mínimo configurado. | Amarillo |
-| **RUPTURA ESTRUCTURAL** | Cierre más allá del extremo del pullback previo a la barrida. Se dibuja la caja de la zona rota. | Azul |
+| **RUPTURA ESTRUCTURAL** | Cierre más allá del extremo del pullback previo a la barrida. Se dibuja la caja de la zona rota, acotada al ancho máximo configurado. | Azul |
 | **ESPERANDO RETESTEO** | Tras la ruptura, el precio se desplazó al menos los ticks mínimos configurados y todavía no ha vuelto. | Azul |
-| **RETESTEO EN OBSERVACIÓN** | El precio regresó a la zona de ruptura. Aún no hay confirmación. | Azul |
+| **RETESTEO EN OBSERVACIÓN** | El precio regresó a la zona de ruptura, en una vela posterior a la que confirmó el desplazamiento. Aún no hay confirmación. | Azul |
 | **ESTRUCTURA COMPLETA** | El retesteo falló: la vela cierra fuera de la zona con cuerpo o mecha de rechazo. Verde si el contexto está alineado, azul si no. | Verde / Azul |
-| **ESTRUCTURA INVALIDADA** | El precio cerró más allá del extremo de la barrida. La secuencia se reinicia. | Gris apagado |
+| **ESTRUCTURA INVALIDADA** | El precio cerró más allá del extremo **congelado** de la barrida. La secuencia se reinicia por completo. | Gris apagado |
 
 Cuando la secuencia está a medias, la fila **Estado** del panel dice qué falta:
 
@@ -81,8 +81,8 @@ timeframe superior, y espacio libre hasta el siguiente nivel.
 
 Al completarse una estructura se dibujan, sólo como geometría:
 
-- **INVALIDACIÓN** — detrás del extremo de la barrida (nunca dentro del
-  pullback), con la distancia en puntos y en ticks.
+- **INVALIDACIÓN ESTRUCTURAL** — detrás del extremo congelado de la barrida
+  (nunca dentro del pullback), con la distancia en puntos y en ticks.
 - **REFERENCIA ESTRUCTURAL** — el cierre de la vela que confirmó el fallo del
   retesteo.
 - **REFERENCIA 1R** y **REFERENCIA 2R** — la misma distancia proyectada 1 y 2
@@ -155,7 +155,8 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 |---|---|---|
 | Tolerancia de barrida / retesteo (ticks) | `4` (= 1 punto en ES) | Cuánto puede pasarse el precio de un nivel y seguir contando como barrida, y qué tan «pegado» debe estar el retesteo. |
 | Mecha mínima de rechazo | `0.50` | Proporción del rango de la vela que debe ser mecha para considerar rechazo. |
-| Desplazamiento mínimo tras la ruptura (ticks) | `8` (= 2 puntos) | El precio debe alejarse esto de la zona rota antes de que un regreso cuente como retesteo. Filtra rupturas sin impulso. |
+| Desplazamiento mínimo tras la ruptura (ticks) | `12` (= 3 puntos) | El precio debe alejarse esto de la zona rota antes de que un regreso cuente como retesteo. Filtra rupturas sin impulso. |
+| Ancho máximo de zona de retesteo (ticks) | `12` (= 3 puntos) | Techo del grosor de la zona de ruptura. Impide que una vela de desplazamiento enorme convierta todo su rango en zona válida. |
 | Ventana de la estructura del pullback (velas) | `20` | Respaldo para localizar el extremo del pullback cuando no hay pivote confirmado válido. |
 | Velas máximas por fase antes de expirar | `30` | Si una fase se estanca, la secuencia expira en vez de quedarse colgada. |
 | Confirmar sólo con velas cerradas | `on` | **Anti-repintado.** Desactívalo sólo si sabes lo que haces. |
@@ -215,12 +216,29 @@ confirma cada fase, no durante su formación.
 
 ## Ajuste rápido para ES / MES
 
-- **1 minuto:** tolerancia 4–8 ticks, desplazamiento 8–12 ticks, pivotes 3/3.
-- **5 minutos:** tolerancia 4 ticks, desplazamiento 8 ticks, pivotes 2/2 o 3/3.
+- **1 minuto:** tolerancia 4–8 ticks, desplazamiento 12–16 ticks, zona de
+  retesteo 8–12 ticks, pivotes 3/3.
+- **5 minutos:** tolerancia 4 ticks, desplazamiento 12 ticks, zona de retesteo
+  12–16 ticks, pivotes 2/2 o 3/3.
 - Si aparecen demasiadas secuencias, sube la sensibilidad de pivote o desactiva
   el grupo de niveles `PIV H` / `PIV L`.
 - Si las estructuras llegan tarde, baja la sensibilidad de pivote derecha
   (menos retraso de confirmación) o el desplazamiento mínimo.
+
+## Detalles del motor estructural
+
+- **El extremo de la barrida queda congelado** en la vela donde se detecta.
+  No se recalcula con máximos o mínimos posteriores, así que el punto de
+  invalidación y la distancia de invalidación no se mueven durante la
+  secuencia.
+- **El rechazo exige contacto real con el nivel**: el extremo de la vela debe
+  caer dentro de la banda `nivel ± tolerancia` por ambos lados. Una mecha
+  grande lejos del nivel ya no cuenta.
+- **La barrida tiene prioridad sobre el rechazo** cuando ambos podrían aplicar,
+  y también frente a un rechazo en otro nivel.
+- **Sólo cuentan como falla** las estructuras que llegaron a completarse y
+  después se invalidaron. Una fase intermedia que expira o se invalida no suma
+  al contador de repeticiones.
 
 ## Límites conocidos
 
@@ -230,6 +248,9 @@ confirma cada fase, no durante su formación.
 - Sólo se sigue una secuencia activa por lado. Una barrida nueva mientras hay
   otra en curso no abre una segunda secuencia; se ignora hasta que la actual se
   complete, se invalide o expire.
+- Una barrida detectada sin haber pasado antes por `NIVEL ALCANZADO` arranca la
+  secuencia directamente en la fase de barrida: la misma vela que barre el nivel
+  es también la que lo alcanza.
 - El indicador describe estructura; no mide probabilidad ni resultado.
 
 ---
