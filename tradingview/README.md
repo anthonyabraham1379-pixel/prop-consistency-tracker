@@ -1,9 +1,10 @@
-# Lector Estructural ES/MES · Fases (Pine Script v6)
+# Lector Estructural · Fases (Pine Script v6)
 
-Indicador de **lectura estructural** para TradingView, pensado para ES y MES
-intradía en gráficos de 1 y 5 minutos.
+Indicador de **lectura estructural** para TradingView, para futuros intradía en
+gráficos de 1 y 5 minutos. Neutral de instrumento: todos los umbrales se miden
+en ticks sobre `syminfo.mintick`, con perfiles listos para ES/MES y NQ/MNQ.
 
-Archivo: [`lector-estructural-es-mes.pine`](./lector-estructural-es-mes.pine)
+Archivo: [`lector-estructural.pine`](./lector-estructural.pine)
 
 ---
 
@@ -30,11 +31,32 @@ operativa.
 ## Instalación
 
 1. TradingView → **Pine Editor** → *Abrir* → *Nuevo indicador*.
-2. Borra la plantilla y pega el contenido de `lector-estructural-es-mes.pine`.
+2. Borra la plantilla y pega el contenido de `lector-estructural.pine`.
 3. **Guardar** → **Añadir al gráfico**.
-4. Recomendado: gráfico de 1 o 5 minutos de `ES1!` o `MES1!`, con la sesión
-   extendida activada (el indicador necesita ver el overnight para calcular su
-   máximo y mínimo).
+4. Recomendado: gráfico de 1 o 5 minutos de `ES1!`, `MES1!`, `NQ1!` o `MNQ1!`,
+   con la sesión extendida activada (el indicador necesita ver el overnight para
+   calcular su máximo y mínimo).
+
+## Perfil de instrumento
+
+El grupo **0 · Perfil de instrumento** decide los valores iniciales de los
+cuatro umbrales sensibles al producto:
+
+| Perfil | Tolerancia | Desplazamiento | Ancho de zona | Distancia mínima de invalidación |
+|---|---|---|---|---|
+| **ES/MES** | 4 ticks | 12 ticks | 12 ticks | 4,75 puntos |
+| **NQ/MNQ** | 6 ticks (rango útil 4–8) | 16 ticks | 16 ticks (rango útil 12–20) | 8 puntos |
+| **Manual** | los del grupo 4 | los del grupo 4 | los del grupo 4 | el del grupo 5 |
+| **Auto** | detecta por `syminfo.root` | | | |
+
+`Auto` reconoce las raíces `ES`, `MES`, `NQ` y `MNQ`. Si la raíz es otra, está
+vacía o no se puede leer, cae al perfil **Manual** — nunca falla ni bloquea el
+indicador. El panel muestra siempre el perfil activo, la raíz detectada y los
+cuatro umbrales que se están aplicando, así que no hay ambigüedad.
+
+Para usar tus propios valores en cualquier instrumento: pon el perfil en
+**Manual** y ajusta los inputs de los grupos 4 y 5. El resto del motor es
+independiente del producto porque todo se mide en ticks.
 
 ---
 
@@ -88,8 +110,9 @@ Al completarse una estructura se dibujan, sólo como geometría:
 - **REFERENCIA 1R** y **REFERENCIA 2R** — la misma distancia proyectada 1 y 2
   veces.
 
-Si la distancia de invalidación es menor que el mínimo configurado (4,75 puntos
-por defecto en ES) aparece **INVALIDACIÓN DEMASIADO CERCANA AL RUIDO**.
+Si la distancia de invalidación es menor que el mínimo del perfil activo
+(4,75 puntos en ES/MES, 8 en NQ/MNQ) aparece **INVALIDACIÓN DEMASIADO CERCANA
+AL RUIDO**.
 
 ## Control de repetición
 
@@ -110,6 +133,12 @@ del margen de «mismo nivel») o, si está activado, en la apertura de la sesió
 ---
 
 ## Inputs
+
+### 0 · Perfil de instrumento
+
+| Input | Por defecto | Para qué sirve |
+|---|---|---|
+| Perfil de instrumento | `Auto` | Auto / ES/MES / NQ/MNQ / Manual. Fija los valores iniciales de tolerancia, desplazamiento, ancho de zona y distancia mínima de invalidación. Auto detecta por `syminfo.root` y cae a Manual si no reconoce la raíz. |
 
 ### 1 · Sesión y contexto temporal
 
@@ -153,10 +182,10 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 
 | Input | Por defecto | Para qué sirve |
 |---|---|---|
-| Tolerancia de barrida / retesteo (ticks) | `4` (= 1 punto en ES) | Cuánto puede pasarse el precio de un nivel y seguir contando como barrida, y qué tan «pegado» debe estar el retesteo. |
+| Tolerancia de barrida / retesteo (ticks) | `4` | Cuánto puede pasarse el precio de un nivel y seguir contando como barrida, y qué tan «pegado» debe estar el retesteo. Sólo se aplica con el perfil Manual. |
 | Mecha mínima de rechazo | `0.50` | Proporción del rango de la vela que debe ser mecha para considerar rechazo. |
-| Desplazamiento mínimo tras la ruptura (ticks) | `12` (= 3 puntos) | El precio debe alejarse esto de la zona rota antes de que un regreso cuente como retesteo. Filtra rupturas sin impulso. |
-| Ancho máximo de zona de retesteo (ticks) | `12` (= 3 puntos) | Techo del grosor de la zona de ruptura. Impide que una vela de desplazamiento enorme convierta todo su rango en zona válida. |
+| Desplazamiento mínimo tras la ruptura (ticks) | `12` | El precio debe alejarse esto de la zona rota antes de que un regreso cuente como retesteo. Filtra rupturas sin impulso. Sólo se aplica con el perfil Manual. |
+| Ancho máximo de zona de retesteo (ticks) | `12` | Techo del grosor de la zona de ruptura. Impide que una vela de desplazamiento enorme convierta todo su rango en zona válida. Sólo se aplica con el perfil Manual. |
 | Ventana de la estructura del pullback (velas) | `20` | Respaldo para localizar el extremo del pullback cuando no hay pivote confirmado válido. |
 | Velas máximas por fase antes de expirar | `30` | Si una fase se estanca, la secuencia expira en vez de quedarse colgada. |
 | Confirmar sólo con velas cerradas | `on` | **Anti-repintado.** Desactívalo sólo si sabes lo que haces. |
@@ -165,7 +194,7 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 
 | Input | Por defecto | Para qué sirve |
 |---|---|---|
-| Distancia mínima de invalidación (puntos) | `4.75` | Por debajo de esto se avisa que la invalidación queda dentro del ruido. |
+| Distancia mínima de invalidación (puntos) | `4.75` | Por debajo de esto se avisa que la invalidación queda dentro del ruido. Sólo se aplica con el perfil Manual. |
 | Dibujar referencias 1R y 2R | `on` | Muestra las proyecciones geométricas. |
 | Longitud de las líneas de referencia (velas) | `25` | Cuánto se extienden hacia la derecha. |
 
@@ -214,11 +243,18 @@ evalúan sobre vela cerrada.
 Consecuencia esperada: las etiquetas aparecen **al cierre** de la vela que
 confirma cada fase, no durante su formación.
 
-## Ajuste rápido para ES / MES
+## Ajuste rápido
 
+**ES / MES**
 - **1 minuto:** tolerancia 4–8 ticks, desplazamiento 12–16 ticks, zona de
   retesteo 8–12 ticks, pivotes 3/3.
 - **5 minutos:** tolerancia 4 ticks, desplazamiento 12 ticks, zona de retesteo
+  12–16 ticks, pivotes 2/2 o 3/3.
+
+**NQ / MNQ** (más ruido por tick, umbrales más anchos)
+- **1 minuto:** tolerancia 6–8 ticks, desplazamiento 16–20 ticks, zona de
+  retesteo 16–20 ticks, pivotes 3/3.
+- **5 minutos:** tolerancia 4–6 ticks, desplazamiento 16 ticks, zona de retesteo
   12–16 ticks, pivotes 2/2 o 3/3.
 - Si aparecen demasiadas secuencias, sube la sensibilidad de pivote o desactiva
   el grupo de niveles `PIV H` / `PIV L`.

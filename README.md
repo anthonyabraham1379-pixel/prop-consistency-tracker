@@ -17,8 +17,9 @@ que se construyen con Claude Code paso a paso.
 - `config/defaultParams.js` — estructura de un challenge configurable + presets
 - `config/theme.js` — paleta de colores
 - `tradingview/` — indicador de lectura estructural para TradingView
-  (Pine Script v6, ES/MES). Es una herramienta aparte de la app: no forma
-  parte del build de Expo. Ver `tradingview/README.md`.
+  (Pine Script v6, futuros intradía con perfiles ES/MES y NQ/MNQ). Es una
+  herramienta aparte de la app: no forma parte del build de Expo. Ver
+  `tradingview/README.md`.
 
 ## Cómo continuar (en tu computadora, no aquí en el chat)
 

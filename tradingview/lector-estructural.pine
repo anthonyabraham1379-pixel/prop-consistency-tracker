@@ -1,6 +1,6 @@
 //@version=6
 // =============================================================================
-//  LECTOR ESTRUCTURAL  ES / MES   ·   Indicador de FASES   ·   Pine Script v6
+//  LECTOR ESTRUCTURAL   ·   Indicador de FASES   ·   Pine Script v6
 // -----------------------------------------------------------------------------
 //  QUÉ ES
 //    Un lector del ESTADO de la estructura del precio. Describe en qué fase de
@@ -20,18 +20,26 @@
 //    del timeframe superior se piden con offset [1] + lookahead_on, que es la
 //    forma no repintable de leer una vela HTF ya cerrada.
 //
+//  INSTRUMENTOS
+//    Neutro: todos los umbrales se expresan en ticks sobre syminfo.mintick, así
+//    que el motor funciona en cualquier instrumento. El perfil (Auto, ES/MES,
+//    NQ/MNQ, Manual) sólo cambia los VALORES INICIALES de tolerancia,
+//    desplazamiento, ancho de zona y distancia mínima de invalidación.
+//    No hay valores de dinero ni tamaño de contrato en ninguna parte.
+//
 //  NOMENCLATURA
 //    "BARRIDA SUPERIOR" = secuencia nacida de una barrida por arriba.
 //    "BARRIDA INFERIOR" = secuencia nacida de una barrida por abajo.
 //    Describen de qué lado se barrió la liquidez, no una dirección operativa.
 // =============================================================================
 
-indicator("Lector Estructural ES/MES · Fases", "ESTRUCTURA", overlay = true,
+indicator("Lector Estructural · Fases", "ESTRUCTURA", overlay = true,
      max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // =============================================================================
 // 1 · INPUTS
 // =============================================================================
+G_INS = "0 · Perfil de instrumento"
 G_SES = "1 · Sesión y contexto temporal"
 G_LVL = "2 · Niveles de referencia"
 G_FLT = "3 · Filtros de contexto"
@@ -39,6 +47,12 @@ G_STR = "4 · Detección estructural"
 G_RSK = "5 · Referencias de invalidación"
 G_RPT = "6 · Control de repetición"
 G_VIS = "7 · Visual"
+
+// --- 0 · perfil de instrumento -----------------------------------------------
+i_profile = input.string("Auto", "Perfil de instrumento",
+     options = ["Auto", "ES/MES", "NQ/MNQ", "Manual"], group = G_INS,
+     tooltip = "Auto detecta el instrumento con syminfo.root. Si no reconoce la raíz " +
+       "usa el perfil Manual, es decir, los valores del grupo 4 y del grupo 5.")
 
 // --- 1 · sesión --------------------------------------------------------------
 i_tz       = input.string("America/New_York", "Zona horaria",
@@ -71,16 +85,21 @@ i_useRoom   = input.bool(false, "Filtro espacio libre hasta el próximo nivel", 
 i_roomR     = input.float(1.5, "· Espacio mínimo (× distancia mínima de invalidación)", minval = 0.1, step = 0.1, group = G_FLT)
 
 // --- 4 · detección estructural ----------------------------------------------
-i_tolTicks  = input.int(4, "Tolerancia de barrida / retesteo (ticks)", minval = 0, maxval = 100, group = G_STR)
+i_tolTicks  = input.int(4, "Tolerancia de barrida / retesteo (ticks)", minval = 0, maxval = 100, group = G_STR,
+     tooltip = "Valor manual. Se aplica con el perfil Manual, o cuando Auto no reconoce el instrumento.")
 i_wick      = input.float(0.50, "Mecha mínima de rechazo (proporción del rango de la vela)", minval = 0.10, maxval = 0.90, step = 0.05, group = G_STR)
-i_dispTicks = input.int(12, "Desplazamiento mínimo tras la ruptura (ticks)", minval = 0, maxval = 400, group = G_STR)
-i_maxRetestTicks = input.int(12, "Ancho máximo de zona de retesteo (ticks)", minval = 1, maxval = 100, group = G_STR)
+i_dispTicks = input.int(12, "Desplazamiento mínimo tras la ruptura (ticks)", minval = 0, maxval = 400, group = G_STR,
+     tooltip = "Valor manual. Se aplica con el perfil Manual, o cuando Auto no reconoce el instrumento.")
+i_maxRetestTicks = input.int(12, "Ancho máximo de zona de retesteo (ticks)", minval = 1, maxval = 100, group = G_STR,
+     tooltip = "Valor manual. Se aplica con el perfil Manual, o cuando Auto no reconoce el instrumento.")
 i_lookback  = input.int(20, "Ventana de la estructura del pullback (velas)", minval = 3, maxval = 200, group = G_STR)
 i_maxBars   = input.int(30, "Velas máximas por fase antes de expirar", minval = 3, maxval = 500, group = G_STR)
 i_confirm   = input.bool(true, "Confirmar sólo con velas cerradas (anti-repintado)", group = G_STR)
 
 // --- 5 · referencias de invalidación ----------------------------------------
-i_minInvPts = input.float(4.75, "Distancia mínima de invalidación (puntos)", minval = 0.0, step = 0.25, group = G_RSK)
+i_minInvPts = input.float(4.75, "Distancia mínima de invalidación (puntos)", minval = 0.0, step = 0.25, group = G_RSK,
+     tooltip = "Valor manual en puntos del instrumento. Se aplica con el perfil Manual, " +
+       "o cuando Auto no reconoce el instrumento.")
 i_showRefs  = input.bool(true, "Dibujar referencias 1R y 2R", group = G_RSK)
 i_refBars   = input.int(25, "Longitud de las líneas de referencia (velas)", minval = 3, maxval = 200, group = G_RSK)
 
@@ -102,10 +121,35 @@ cOff  = input.color(#4f5966, "Color · estructura invalidada",           group =
 // =============================================================================
 // 2 · CÁLCULOS BÁSICOS
 // =============================================================================
-tick      = syminfo.mintick
-tol       = i_tolTicks  * tick
-disp      = i_dispTicks * tick
-maxRetest = i_maxRetestTicks * tick   // techo del ancho de la zona de retesteo
+// --- perfil de instrumento ---------------------------------------------------
+// Valores INICIALES por perfil. Todo en ticks salvo la distancia mínima de
+// invalidación, que va en puntos porque depende del ruido típico del producto.
+P_ES_TOL    = 4
+P_ES_DISP   = 12
+P_ES_RETEST = 12
+P_ES_MININV = 4.75
+P_NQ_TOL    = 6       // rango razonable 4-8
+P_NQ_DISP   = 16
+P_NQ_RETEST = 16      // rango razonable 12-20
+P_NQ_MININV = 8.0
+
+// Detección por raíz del símbolo. str.tostring() protege el caso de raíz vacía
+// o na: entonces no coincide con nada y se cae al perfil Manual, sin romper.
+rootU  = str.upper(str.tostring(syminfo.root))
+detES  = rootU == "ES" or rootU == "MES"
+detNQ  = rootU == "NQ" or rootU == "MNQ"
+profAuto = detES ? "ES/MES" : detNQ ? "NQ/MNQ" : "Manual"
+profUsed = i_profile == "Auto" ? profAuto : i_profile
+
+tolTicksEff    = profUsed == "ES/MES" ? P_ES_TOL    : profUsed == "NQ/MNQ" ? P_NQ_TOL    : i_tolTicks
+dispTicksEff   = profUsed == "ES/MES" ? P_ES_DISP   : profUsed == "NQ/MNQ" ? P_NQ_DISP   : i_dispTicks
+retestTicksEff = profUsed == "ES/MES" ? P_ES_RETEST : profUsed == "NQ/MNQ" ? P_NQ_RETEST : i_maxRetestTicks
+minInvEff      = profUsed == "ES/MES" ? P_ES_MININV : profUsed == "NQ/MNQ" ? P_NQ_MININV : i_minInvPts
+
+tick      = syminfo.mintick           // toda la métrica del indicador sale de aquí
+tol       = tolTicksEff    * tick
+disp      = dispTicksEff   * tick
+maxRetest = retestTicksEff * tick     // techo del ancho de la zona de retesteo
 
 // --- sesiones ----------------------------------------------------------------
 inRTH   = not na(time(timeframe.period, i_sesRTH, i_tz))
@@ -269,7 +313,7 @@ f_ctx(bool upper) =>
     if i_useRoom
         tot += 1
         r  = upper ? roomDn : roomUp
-        cR = na(r) or r >= i_roomR * i_minInvPts
+        cR = na(r) or r >= i_roomR * minInvEff
         ok  += cR ? 1 : 0
         bad += cR ? 0 : 1
     tot == 0 ? 1 : ok == tot ? 2 : (ok == 0 and bad > 0) ? 0 : 1
@@ -604,7 +648,7 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                         r2px = upper ? s.refPx - 2 * s.dist : s.refPx + 2 * s.dist
                         f_ref(r1px, "REFERENCIA 1R", cDone, true)
                         f_ref(r2px, "REFERENCIA 2R", cDone, true)
-                    if s.dist < i_minInvPts
+                    if s.dist < minInvEff
                         f_tag(bar_index, upper ? high : low, "INVALIDACIÓN DEMASIADO CERCANA AL RUIDO", cWarn, not upper)
     ev
 
@@ -674,7 +718,7 @@ f_distTxt(Seq s) =>
     string out = "—"
     if s.phase == 5 and not na(s.dist)
         out := str.tostring(s.dist, format.mintick) + " pts / " + str.tostring(int(math.round(s.dist / tick))) + " ticks"
-        if s.dist < i_minInvPts
+        if s.dist < minInvEff
             out := out + "  ⚠ DEMASIADO CERCANA AL RUIDO"
     out
 
@@ -694,7 +738,7 @@ f_lvlTxt(Seq s) =>
 
 f_strTxt(b) => b == 1 ? "ASCENDENTE" : b == -1 ? "DESCENDENTE" : "MIXTA"
 
-var table panel = table.new(position.top_right, 3, 9, border_width = 1, frame_width = 1,
+var table panel = table.new(position.top_right, 3, 10, border_width = 1, frame_width = 1,
      frame_color = color.new(#787b86, 60), border_color = color.new(#787b86, 80))
 
 f_cell(int col, int row, string txt, color bg, color tc) =>
@@ -706,8 +750,8 @@ if i_showTable and barstate.islast
     bgRow = color.new(#12151b, 20)
     cHdr  = color.new(color.white, 20)
     cKey  = color.new(color.white, 35)
-    ruidoUp = seqUp.phase == 5 and nz(seqUp.dist, 999) < i_minInvPts
-    ruidoDn = seqDn.phase == 5 and nz(seqDn.dist, 999) < i_minInvPts
+    ruidoUp = seqUp.phase == 5 and nz(seqUp.dist, 999) < minInvEff
+    ruidoDn = seqDn.phase == 5 and nz(seqDn.dist, 999) < minInvEff
 
     f_cell(0, 0, "LECTOR ESTRUCTURAL", bgHdr, cHdr)
     f_cell(1, 0, "BARRIDA SUPERIOR",   bgHdr, cHdr)
@@ -745,6 +789,14 @@ if i_showTable and barstate.islast
     f_cell(1, 8, "HTF " + i_htf + ": " + f_strTxt(htfStruct), bgRow, cNeu)
     f_cell(2, 8, "Local: " + f_strTxt(locStruct), bgRow, cNeu)
 
+    // Perfil activo y umbrales efectivos, para que nunca haya duda de qué
+    // valores está usando el motor en el instrumento actual.
+    perfTxt = profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · " + rootU
+    umbTxt  = "tol " + str.tostring(tolTicksEff) + "t · desp " + str.tostring(dispTicksEff) + "t · zona " + str.tostring(retestTicksEff) + "t · inval " + str.tostring(minInvEff) + " pts"
+    f_cell(0, 9, "Perfil",  bgRow, cKey)
+    f_cell(1, 9, perfTxt,   bgRow, cNeu)
+    f_cell(2, 9, umbTxt,    bgRow, cLvl)
+
 // =============================================================================
 // 10 · ALERTAS · sólo cambios de estado estructural, sin lenguaje operativo
 // =============================================================================
@@ -757,7 +809,7 @@ alRetesteo  = evUp == 6 or evDn == 6
 alCompleta  = evUp == 7 or evDn == 7
 alAplus     = (evUp == 7 and seqUp.ctxDone == 2) or (evDn == 7 and seqDn.ctxDone == 2)
 alInvalida  = evUp == 8 or evDn == 8
-alRuido     = (evUp == 7 and nz(seqUp.dist, 999) < i_minInvPts) or (evDn == 7 and nz(seqDn.dist, 999) < i_minInvPts)
+alRuido     = (evUp == 7 and nz(seqUp.dist, 999) < minInvEff) or (evDn == 7 and nz(seqDn.dist, 999) < minInvEff)
 alPausa     = (evUp == 8 and seqUp.fails >= i_maxFails) or (evDn == 8 and seqDn.fails >= i_maxFails)
 
 alertcondition(alNivel,     "NIVEL ALCANZADO",                  "Estructura: el precio alcanzó un nivel de referencia")
