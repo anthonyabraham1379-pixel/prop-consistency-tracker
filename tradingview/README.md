@@ -60,6 +60,50 @@ independiente del producto porque todo se mide en ticks.
 
 ---
 
+## Lectura visual
+
+El gráfico habla con **glifos y color**, no con frases. Cada marca lleva el
+texto completo en el **tooltip**: pasa el ratón por encima y ves la descripción
+entera sin saturar el gráfico.
+
+| Glifo | Fase |
+|:--:|---|
+| `•` | Nivel alcanzado |
+| `◇` | Posible barrida |
+| `◆` | Rechazo detectado |
+| `▬` | Ruptura estructural |
+| `⋯` | Esperando retesteo |
+| `◎` | Retesteo en observación |
+| `●` | Estructura completa |
+| `★` | Estructura completa con contexto alineado (A+) |
+| `✕` | Estructura invalidada · línea de invalidación |
+| `◐` | Referencia 1R alcanzada |
+| `⚠` | Invalidación dentro del ruido · aviso de repetición |
+| `‖` | Pausa sugerida |
+
+Las líneas de referencia se etiquetan `✕ 12.50`, `●`, `1R` y `2R`; el resto va
+en el tooltip.
+
+### Panel compacto
+
+Cinco filas, una palabra por celda y una barra de progreso de la secuencia:
+
+```
+◧ ESTRUCTURA   SUPERIOR             INFERIOR
+FASE           ●●●○○  ▬ RUPTURA     ●○○○○  • NIVEL
+CONTEXTO       ✓ ALINEADO           ~ MIXTO
+INVALIDACIÓN   6.25                 —
+AVISO          ‖ PAUSA              —
+```
+
+Los puntos `●●●○○` marcan cuántas de las cinco fases se han completado. Cada
+celda tiene tooltip con el texto largo (fase completa, qué falta, distancia en
+puntos y ticks, aviso íntegro, perfil y umbrales activos).
+
+Con **Modo del panel → Detallado** vuelve la tabla larga de diez filas, con todo
+escrito. Con **Etiquetas como símbolo → off**, las marcas del gráfico vuelven a
+mostrar el texto completo.
+
 ## Los 9 estados visuales
 
 | Estado | Cuándo aparece | Color |
@@ -210,8 +254,10 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 | Input | Por defecto | Para qué sirve |
 |---|---|---|
 | Dibujar zonas | `on` | Cajas de barrida y de ruptura/retesteo. |
-| Dibujar etiquetas de fase | `on` | Etiquetas pequeñas en el gráfico. |
+| Dibujar etiquetas de fase | `on` | Marcas de fase en el gráfico. |
 | Mostrar panel de estado | `on` | Tabla con el estado de las dos secuencias. |
+| Modo del panel | `Compacto` | `Compacto` (5 filas con glifos y tooltips) o `Detallado` (10 filas con todo el texto). |
+| Etiquetas como símbolo | `on` | `on`: un glifo por marca y el detalle en el tooltip. `off`: texto completo en el gráfico. |
 | Estructuras recientes a mantener en pantalla | `3` | Controla el número de cajas, líneas y etiquetas vivas para no agotar el límite de objetos. |
 | Colores | verde / azul / amarillo / gris | Verde = completa y alineada · azul = completa sin alineación total o fase intermedia · amarillo = fase intermedia y advertencias · gris = niveles e invalidada. |
 

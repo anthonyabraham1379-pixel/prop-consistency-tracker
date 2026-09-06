@@ -111,12 +111,30 @@ i_sameLvlPts = input.float(2.0, "Margen para considerar «mismo nivel» (puntos)
 i_showBoxes  = input.bool(true, "Dibujar zonas (barrida, ruptura, retesteo)", group = G_VIS)
 i_showLabels = input.bool(true, "Dibujar etiquetas de fase", group = G_VIS)
 i_showTable  = input.bool(true, "Mostrar panel de estado", group = G_VIS)
+i_panelMode  = input.string("Compacto", "Modo del panel", options = ["Compacto", "Detallado"], group = G_VIS)
+i_symbols    = input.bool(true, "Etiquetas como símbolo (el detalle va en el tooltip)", group = G_VIS)
 i_maxDraw    = input.int(3, "Estructuras recientes a mantener en pantalla", minval = 1, maxval = 20, group = G_VIS)
 cOk   = input.color(#26a69a, "Color · estructura completa y alineada",  group = G_VIS)
 cNeu  = input.color(#5b8def, "Color · estructura sin alineación total", group = G_VIS)
 cWarn = input.color(#f0b90b, "Color · fase intermedia y advertencias",  group = G_VIS)
 cLvl  = input.color(#787b86, "Color · niveles",                         group = G_VIS)
 cOff  = input.color(#4f5966, "Color · estructura invalidada",           group = G_VIS)
+
+// --- símbolos de fase --------------------------------------------------------
+// El gráfico habla con glifos y color; el texto completo vive en el tooltip.
+SYM_LVL   = "•"   // nivel alcanzado
+SYM_SWEEP = "◇"   // posible barrida
+SYM_REJ   = "◆"   // rechazo detectado
+SYM_BOS   = "▬"   // ruptura estructural
+SYM_WAIT  = "⋯"   // esperando retesteo
+SYM_RET   = "◎"   // retesteo en observación
+SYM_DONE  = "●"   // estructura completa
+SYM_APLUS = "★"   // estructura completa con contexto alineado
+SYM_INV   = "✕"   // estructura invalidada
+SYM_WARN  = "⚠"   // advertencia
+SYM_PAUSE = "‖"   // pausa sugerida
+SYM_R1    = "◐"   // referencia 1R alcanzada
+SYM_OFF   = "○"   // fase no alcanzada
 
 // =============================================================================
 // 2 · CÁLCULOS BÁSICOS
@@ -346,28 +364,41 @@ f_trimLines(int maxN) =>
 f_box(int x1, float y1, int x2, float y2, color c, int transp) =>
     if i_showBoxes
         b = box.new(x1, math.max(y1, y2), x2, math.min(y1, y2),
-             border_color = color.new(c, 40), bgcolor = color.new(c, transp), border_width = 1)
+             border_color = color.new(c, 65), bgcolor = color.new(c, transp), border_width = 1)
         array.push(gBoxes, b)
         f_trimBoxes(i_maxDraw * 3)
 
-f_tag(int x, float y, string txt, color c, bool below) =>
+// Marca de fase: un glifo en el gráfico, la descripción completa en el tooltip.
+f_tag(int x, float y, string sym, string tip, color c, bool below) =>
     if i_showLabels
-        l = label.new(x, y, txt,
-             style     = below ? label.style_label_up : label.style_label_down,
-             color     = color.new(c, 15),
-             textcolor = color.white,
-             size      = size.tiny)
-        array.push(gLabels, l)
+        if i_symbols
+            l = label.new(x, y, sym,
+                 style     = below ? label.style_label_up : label.style_label_down,
+                 color     = color.new(c, 20),
+                 textcolor = color.white,
+                 size      = size.normal,
+                 tooltip   = tip)
+            array.push(gLabels, l)
+        else
+            l = label.new(x, y, sym + "  " + tip,
+                 style     = below ? label.style_label_up : label.style_label_down,
+                 color     = color.new(c, 15),
+                 textcolor = color.white,
+                 size      = size.tiny,
+                 tooltip   = tip)
+            array.push(gLabels, l)
         f_trimLabels(i_maxDraw * 10)
 
-f_ref(float y, string txt, color c, bool dotted) =>
+// Línea de referencia: etiqueta mínima, texto completo en el tooltip.
+f_ref(float y, string sym, string tip, color c, bool dotted) =>
     ln = line.new(bar_index, y, bar_index + i_refBars, y,
-         color = color.new(c, 25), style = dotted ? line.style_dotted : line.style_dashed, width = 1)
+         color = color.new(c, 35), style = dotted ? line.style_dotted : line.style_dashed, width = 1)
     array.push(gLines, ln)
     f_trimLines(i_maxDraw * 5)
     if i_showLabels
-        l = label.new(bar_index + i_refBars, y, txt, style = label.style_label_left,
-             color = color.new(c, 85), textcolor = c, size = size.tiny)
+        l = label.new(bar_index + i_refBars, y, i_symbols ? sym : sym + " " + tip,
+             style = label.style_label_left, color = color.new(c, 90), textcolor = c,
+             size = size.tiny, tooltip = tip)
         array.push(gLabels, l)
         f_trimLabels(i_maxDraw * 10)
 
@@ -514,7 +545,7 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
             s.zLo       := na
             s.zHi       := na
             ev := 8
-            f_tag(bar_index, upper ? high : low, "ESTRUCTURA INVALIDADA", cOff, not upper)
+            f_tag(bar_index, upper ? high : low, SYM_INV, "ESTRUCTURA INVALIDADA", cOff, not upper)
         else
             // Una misma vela no puede arrancar dos veces la secuencia.
             starting = (s.phase <= 1 or s.phase == 5) and evt >= 2 and bar_index > s.lastEvtBar
@@ -544,8 +575,8 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                 s.note      := evt == 3 ? "RECHAZO DETECTADO" : "POSIBLE BARRIDA"
                 s.missing   := "FALTA RUPTURA"
                 ev := evt
-                f_box(bar_index - 1, s.lvl, bar_index + 1, s.ext, cWarn, 80)
-                f_tag(bar_index, upper ? high : low, s.note + " · " + ename, cWarn, not upper)
+                f_box(bar_index - 1, s.lvl, bar_index + 1, s.ext, cWarn, 86)
+                f_tag(bar_index, upper ? high : low, evt == 3 ? SYM_REJ : SYM_SWEEP, s.note + " · " + ename, cWarn, not upper)
 
             // ============ fase 0 / 1 · sólo se alcanzó el nivel ==============
             else if s.phase <= 1
@@ -558,7 +589,7 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     s.note    := "NIVEL ALCANZADO"
                     s.missing := "FALTA BARRIDA O RECHAZO"
                     ev := 1
-                    f_tag(bar_index, upper ? high : low, "NIVEL ALCANZADO · " + ename, cLvl, not upper)
+                    f_tag(bar_index, upper ? high : low, SYM_LVL, "NIVEL ALCANZADO · " + ename, cLvl, not upper)
 
             // ============ fase 2 · esperando la ruptura ======================
             else if s.phase == 2
@@ -584,8 +615,8 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     s.note     := "RUPTURA ESTRUCTURAL"
                     s.missing  := "FALTA RETESTEO"
                     ev := 4
-                    f_box(bar_index, s.zHi, bar_index + i_maxBars, s.zLo, cNeu, 88)
-                    f_tag(bar_index, upper ? low : high, "RUPTURA ESTRUCTURAL", cNeu, upper)
+                    f_box(bar_index, s.zHi, bar_index + i_maxBars, s.zLo, cNeu, 92)
+                    f_tag(bar_index, upper ? low : high, SYM_BOS, "RUPTURA ESTRUCTURAL", cNeu, upper)
 
             // ============ fase 3 · esperando el retesteo =====================
             else if s.phase == 3
@@ -604,14 +635,14 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     s.note    := "RETESTEO EN OBSERVACIÓN"
                     s.missing := "FALTA RECHAZO DEL RETESTEO"
                     ev := 6
-                    f_tag(bar_index, upper ? high : low, "RETESTEO EN OBSERVACIÓN", cNeu, not upper)
+                    f_tag(bar_index, upper ? high : low, SYM_RET, "RETESTEO EN OBSERVACIÓN", cNeu, not upper)
 
             // ============ fase 5 · seguimiento de la estructura ==============
             else if s.phase == 5
                 lleg1R = upper ? low <= s.refPx - s.dist : high >= s.refPx + s.dist
                 if not s.r1 and not na(s.dist) and lleg1R
                     s.r1 := true
-                    f_tag(bar_index, upper ? low : high, "REFERENCIA 1R ALCANZADA", cOk, upper)
+                    f_tag(bar_index, upper ? low : high, SYM_R1, "REFERENCIA 1R ALCANZADA", cOk, upper)
 
             // ============ fase 4 · ¿el retesteo falla? =======================
             // (fuera de la cadena: puede confirmarse en la misma vela del retesteo)
@@ -639,17 +670,17 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
                     ev := 7
                     cDone = ctxNow == 2 ? cOk : cNeu
                     txt   = s.note + " · " + s.lvlName + "\n" + f_ctxTxt(ctxNow)
-                    f_tag(bar_index, upper ? low : high, txt, cDone, upper)
+                    f_tag(bar_index, upper ? low : high, ctxNow == 2 ? SYM_APLUS : SYM_DONE, txt, cDone, upper)
                     dTxt = str.tostring(s.dist, format.mintick) + " pts / " + str.tostring(int(math.round(s.dist / tick))) + " ticks"
-                    f_ref(s.invPx, "INVALIDACIÓN ESTRUCTURAL · " + dTxt, cWarn, false)
-                    f_ref(s.refPx, "REFERENCIA ESTRUCTURAL", cDone, true)
+                    f_ref(s.invPx, SYM_INV + " " + str.tostring(s.dist, format.mintick), "INVALIDACIÓN ESTRUCTURAL · DISTANCIA DE INVALIDACIÓN " + dTxt, cWarn, false)
+                    f_ref(s.refPx, SYM_DONE, "REFERENCIA ESTRUCTURAL", cDone, true)
                     if i_showRefs
                         r1px = upper ? s.refPx - s.dist     : s.refPx + s.dist
                         r2px = upper ? s.refPx - 2 * s.dist : s.refPx + 2 * s.dist
-                        f_ref(r1px, "REFERENCIA 1R", cDone, true)
-                        f_ref(r2px, "REFERENCIA 2R", cDone, true)
+                        f_ref(r1px, "1R", "REFERENCIA 1R", cDone, true)
+                        f_ref(r2px, "2R", "REFERENCIA 2R", cDone, true)
                     if s.dist < minInvEff
-                        f_tag(bar_index, upper ? high : low, "INVALIDACIÓN DEMASIADO CERCANA AL RUIDO", cWarn, not upper)
+                        f_tag(bar_index, upper ? high : low, SYM_WARN, "INVALIDACIÓN DEMASIADO CERCANA AL RUIDO", cWarn, not upper)
     ev
 
 evUp = f_step(seqUp, true,  evtUp, lvlUpP, lvlUpN)
@@ -658,16 +689,16 @@ evDn = f_step(seqDn, false, evtDn, lvlDnP, lvlDnN)
 // =============================================================================
 // 8 · NIVELES, FILTROS Y SESIÓN EN EL GRÁFICO
 // =============================================================================
-plot(i_showON  ? onH    : na, "ON High",     color = color.new(cLvl, 20), style = plot.style_linebr)
-plot(i_showON  ? onL    : na, "ON Low",      color = color.new(cLvl, 20), style = plot.style_linebr)
-plot(i_showPD  ? pdH    : na, "PDH",         color = color.new(cLvl, 45), style = plot.style_linebr)
-plot(i_showPD  ? pdL    : na, "PDL",         color = color.new(cLvl, 45), style = plot.style_linebr)
-plot(i_showOR  ? orH    : na, "OR High",     color = color.new(cNeu, 25), style = plot.style_linebr)
-plot(i_showOR  ? orL    : na, "OR Low",      color = color.new(cNeu, 25), style = plot.style_linebr)
-plot(i_showPiv ? lastPH : na, "Pivote alto", color = color.new(cLvl, 60), style = plot.style_linebr)
-plot(i_showPiv ? lastPL : na, "Pivote bajo", color = color.new(cLvl, 60), style = plot.style_linebr)
-plot(i_useEma  ? emaLoc  : na, "EMA local", color = color.new(cNeu, 35))
-plot(i_useVwap ? vwapVal : na, "VWAP",      color = color.new(#ff9800, 25))
+plot(i_showON  ? onH    : na, "ON High",     color = color.new(cLvl, 35), style = plot.style_linebr)
+plot(i_showON  ? onL    : na, "ON Low",      color = color.new(cLvl, 35), style = plot.style_linebr)
+plot(i_showPD  ? pdH    : na, "PDH",         color = color.new(cLvl, 55), style = plot.style_linebr)
+plot(i_showPD  ? pdL    : na, "PDL",         color = color.new(cLvl, 55), style = plot.style_linebr)
+plot(i_showOR  ? orH    : na, "OR High",     color = color.new(cNeu, 40), style = plot.style_linebr)
+plot(i_showOR  ? orL    : na, "OR Low",      color = color.new(cNeu, 40), style = plot.style_linebr)
+plot(i_showPiv ? lastPH : na, "Pivote alto", color = color.new(cLvl, 72), style = plot.style_linebr)
+plot(i_showPiv ? lastPL : na, "Pivote bajo", color = color.new(cLvl, 72), style = plot.style_linebr)
+plot(i_useEma  ? emaLoc  : na, "EMA local", color = color.new(cNeu, 50))
+plot(i_useVwap ? vwapVal : na, "VWAP",      color = color.new(#ff9800, 40))
 bgcolor(inRTH ? color.new(cNeu, 96) : na, title = "Sesión regular")
 
 // --- etiquetas de nivel en la última vela -----------------------------------
@@ -738,64 +769,147 @@ f_lvlTxt(Seq s) =>
 
 f_strTxt(b) => b == 1 ? "ASCENDENTE" : b == -1 ? "DESCENDENTE" : "MIXTA"
 
+// --- lectura compacta: glifo, palabra corta y progreso en puntos -------------
+f_dots(int ph) =>
+    int n = math.max(0, math.min(5, ph))
+    string out = ""
+    for k = 1 to 5
+        out := out + (k <= n ? SYM_DONE : SYM_OFF)
+    out
+
+f_phSym(Seq s) =>
+    switch s.phase
+        0 => s.note == "ESTRUCTURA INVALIDADA" ? SYM_INV : SYM_OFF
+        1 => SYM_LVL
+        2 => s.note == "RECHAZO DETECTADO" ? SYM_REJ : SYM_SWEEP
+        3 => s.moved ? SYM_WAIT : SYM_BOS
+        4 => SYM_RET
+        5 => s.ctxDone == 2 ? SYM_APLUS : SYM_DONE
+        => SYM_OFF
+
+f_phShort(Seq s) =>
+    switch s.phase
+        0 => s.note == "ESTRUCTURA INVALIDADA" ? "INVALIDADA" : s.note == "SECUENCIA EXPIRADA" ? "EXPIRADA" : "—"
+        1 => "NIVEL"
+        2 => s.note == "RECHAZO DETECTADO" ? "RECHAZO" : "BARRIDA"
+        3 => s.moved ? "ESPERA" : "RUPTURA"
+        4 => "RETESTEO"
+        5 => s.ctxDone == 2 ? "A+" : "COMPLETA"
+        => "—"
+
+f_ctxSym(st)   => st == 2 ? "✓" : st == 0 ? "✕" : "~"
+f_ctxShort(st) => st == 2 ? "ALINEADO" : st == 0 ? "CONTRARIO" : "MIXTO"
+
+f_warnShort(Seq s) =>
+    string out = "—"
+    if s.warn != ""
+        out := str.contains(s.warn, "PAUSA")   ? SYM_PAUSE + " PAUSA"
+             : str.contains(s.warn, "SEGUNDA") ? SYM_WARN + " 2ª FALLA"
+             : SYM_WARN + " REPETIDA"
+    else if s.r1 and s.phase < 5
+        out := "◌ SIN NUEVA"
+    out
+
+f_distShort(Seq s) =>
+    string out = "—"
+    if s.phase == 5 and not na(s.dist)
+        out := str.tostring(s.dist, format.mintick) + (s.dist < minInvEff ? "  " + SYM_WARN : "")
+    out
+
+// --- panel -------------------------------------------------------------------
 var table panel = table.new(position.top_right, 3, 10, border_width = 1, frame_width = 1,
-     frame_color = color.new(#787b86, 60), border_color = color.new(#787b86, 80))
+     frame_color = color.new(#787b86, 70), border_color = color.new(#787b86, 88))
+
+f_cellT(int col, int row, string txt, color bg, color tc, string tip) =>
+    table.cell(panel, col, row, txt, text_size = size.small,
+         text_halign = text.align_left, bgcolor = bg, text_color = tc, tooltip = tip)
+
+f_cellB(int col, int row, string txt, color bg, color tc, string tip) =>
+    table.cell(panel, col, row, txt, text_size = size.normal,
+         text_halign = text.align_left, bgcolor = bg, text_color = tc, tooltip = tip)
 
 f_cell(int col, int row, string txt, color bg, color tc) =>
-    table.cell(panel, col, row, txt, text_size = size.small,
-         text_halign = text.align_left, bgcolor = bg, text_color = tc)
+    f_cellT(col, row, txt, bg, tc, "")
 
 if i_showTable and barstate.islast
     bgHdr = color.new(#1b1f27, 10)
     bgRow = color.new(#12151b, 20)
     cHdr  = color.new(color.white, 20)
-    cKey  = color.new(color.white, 35)
+    cKey  = color.new(color.white, 45)
     ruidoUp = seqUp.phase == 5 and nz(seqUp.dist, 999) < minInvEff
     ruidoDn = seqDn.phase == 5 and nz(seqDn.dist, 999) < minInvEff
+    perfTip = "Perfil " + profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · raíz " + rootU +
+       "\ntolerancia " + str.tostring(tolTicksEff) + " ticks · desplazamiento " + str.tostring(dispTicksEff) +
+       " ticks\nzona de retesteo " + str.tostring(retestTicksEff) + " ticks · invalidación mínima " +
+       str.tostring(minInvEff) + " puntos"
+    tipUp = f_phaseTxt(seqUp) + "\n" + f_missTxt(seqUp)
+    tipDn = f_phaseTxt(seqDn) + "\n" + f_missTxt(seqDn)
 
-    f_cell(0, 0, "LECTOR ESTRUCTURAL", bgHdr, cHdr)
-    f_cell(1, 0, "BARRIDA SUPERIOR",   bgHdr, cHdr)
-    f_cell(2, 0, "BARRIDA INFERIOR",   bgHdr, cHdr)
+    // se limpia siempre para que al cambiar de modo no queden celdas viejas
+    table.clear(panel, 0, 0, 2, 9)
 
-    f_cell(0, 1, "Fase",            bgRow, cKey)
-    f_cell(1, 1, f_phaseTxt(seqUp), bgRow, f_phaseCol(seqUp))
-    f_cell(2, 1, f_phaseTxt(seqDn), bgRow, f_phaseCol(seqDn))
+    if i_panelMode == "Compacto"
+        // ---------- panel compacto: 5 filas, glifos y una palabra ------------
+        f_cellB(0, 0, "◧ ESTRUCTURA", bgHdr, cHdr, perfTip)
+        f_cellB(1, 0, "SUPERIOR",     bgHdr, cHdr, "Secuencia nacida de una barrida por arriba")
+        f_cellB(2, 0, "INFERIOR",     bgHdr, cHdr, "Secuencia nacida de una barrida por abajo")
 
-    f_cell(0, 2, "Estado",         bgRow, cKey)
-    f_cell(1, 2, f_missTxt(seqUp), bgRow, seqUp.phase == 5 ? cOk : cWarn)
-    f_cell(2, 2, f_missTxt(seqDn), bgRow, seqDn.phase == 5 ? cOk : cWarn)
+        f_cellB(0, 1, "FASE", bgRow, cKey, "Progreso de la secuencia: nivel · barrida · ruptura · retesteo · completa")
+        f_cellB(1, 1, f_dots(seqUp.phase) + "  " + f_phSym(seqUp) + " " + f_phShort(seqUp), bgRow, f_phaseCol(seqUp), tipUp)
+        f_cellB(2, 1, f_dots(seqDn.phase) + "  " + f_phSym(seqDn) + " " + f_phShort(seqDn), bgRow, f_phaseCol(seqDn), tipDn)
 
-    f_cell(0, 3, "Clasificación",   bgRow, cKey)
-    f_cell(1, 3, f_gradeTxt(seqUp), bgRow, f_phaseCol(seqUp))
-    f_cell(2, 3, f_gradeTxt(seqDn), bgRow, f_phaseCol(seqDn))
+        f_cellB(0, 2, "CONTEXTO", bgRow, cKey, "EMA, VWAP, EMA HTF, estructura HTF y espacio hasta el próximo nivel")
+        f_cellB(1, 2, f_ctxSym(ctxUp) + " " + f_ctxShort(ctxUp), bgRow, f_ctxCol(ctxUp), f_ctxTxt(ctxUp))
+        f_cellB(2, 2, f_ctxSym(ctxDn) + " " + f_ctxShort(ctxDn), bgRow, f_ctxCol(ctxDn), f_ctxTxt(ctxDn))
 
-    f_cell(0, 4, "Contexto",      bgRow, cKey)
-    f_cell(1, 4, f_ctxTxt(ctxUp), bgRow, f_ctxCol(ctxUp))
-    f_cell(2, 4, f_ctxTxt(ctxDn), bgRow, f_ctxCol(ctxDn))
+        f_cellB(0, 3, "INVALIDACIÓN", bgRow, cKey, "DISTANCIA DE INVALIDACIÓN en puntos")
+        f_cellB(1, 3, f_distShort(seqUp), bgRow, ruidoUp ? cWarn : cLvl, f_distTxt(seqUp))
+        f_cellB(2, 3, f_distShort(seqDn), bgRow, ruidoDn ? cWarn : cLvl, f_distTxt(seqDn))
 
-    f_cell(0, 5, "Nivel",         bgRow, cKey)
-    f_cell(1, 5, f_lvlTxt(seqUp), bgRow, cLvl)
-    f_cell(2, 5, f_lvlTxt(seqDn), bgRow, cLvl)
+        f_cellB(0, 4, "AVISO", bgRow, cKey, "Control de repetición y de estructuras ya explotadas")
+        f_cellB(1, 4, f_warnShort(seqUp), bgRow, cWarn, f_warnTxt(seqUp))
+        f_cellB(2, 4, f_warnShort(seqDn), bgRow, cWarn, f_warnTxt(seqDn))
+    else
+        // ---------- panel detallado ------------------------------------------
+        f_cell(0, 0, "LECTOR ESTRUCTURAL", bgHdr, cHdr)
+        f_cell(1, 0, "BARRIDA SUPERIOR",   bgHdr, cHdr)
+        f_cell(2, 0, "BARRIDA INFERIOR",   bgHdr, cHdr)
 
-    f_cell(0, 6, "DISTANCIA DE INVALIDACIÓN", bgRow, cKey)
-    f_cell(1, 6, f_distTxt(seqUp), bgRow, ruidoUp ? cWarn : cLvl)
-    f_cell(2, 6, f_distTxt(seqDn), bgRow, ruidoDn ? cWarn : cLvl)
+        f_cell(0, 1, "Fase",            bgRow, cKey)
+        f_cell(1, 1, f_phaseTxt(seqUp), bgRow, f_phaseCol(seqUp))
+        f_cell(2, 1, f_phaseTxt(seqDn), bgRow, f_phaseCol(seqDn))
 
-    f_cell(0, 7, "Aviso",          bgRow, cKey)
-    f_cell(1, 7, f_warnTxt(seqUp), bgRow, cWarn)
-    f_cell(2, 7, f_warnTxt(seqDn), bgRow, cWarn)
+        f_cell(0, 2, "Estado",         bgRow, cKey)
+        f_cell(1, 2, f_missTxt(seqUp), bgRow, seqUp.phase == 5 ? cOk : cWarn)
+        f_cell(2, 2, f_missTxt(seqDn), bgRow, seqDn.phase == 5 ? cOk : cWarn)
 
-    f_cell(0, 8, "Estructura",                   bgRow, cKey)
-    f_cell(1, 8, "HTF " + i_htf + ": " + f_strTxt(htfStruct), bgRow, cNeu)
-    f_cell(2, 8, "Local: " + f_strTxt(locStruct), bgRow, cNeu)
+        f_cell(0, 3, "Clasificación",   bgRow, cKey)
+        f_cell(1, 3, f_gradeTxt(seqUp), bgRow, f_phaseCol(seqUp))
+        f_cell(2, 3, f_gradeTxt(seqDn), bgRow, f_phaseCol(seqDn))
 
-    // Perfil activo y umbrales efectivos, para que nunca haya duda de qué
-    // valores está usando el motor en el instrumento actual.
-    perfTxt = profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · " + rootU
-    umbTxt  = "tol " + str.tostring(tolTicksEff) + "t · desp " + str.tostring(dispTicksEff) + "t · zona " + str.tostring(retestTicksEff) + "t · inval " + str.tostring(minInvEff) + " pts"
-    f_cell(0, 9, "Perfil",  bgRow, cKey)
-    f_cell(1, 9, perfTxt,   bgRow, cNeu)
-    f_cell(2, 9, umbTxt,    bgRow, cLvl)
+        f_cell(0, 4, "Contexto",      bgRow, cKey)
+        f_cell(1, 4, f_ctxTxt(ctxUp), bgRow, f_ctxCol(ctxUp))
+        f_cell(2, 4, f_ctxTxt(ctxDn), bgRow, f_ctxCol(ctxDn))
+
+        f_cell(0, 5, "Nivel",         bgRow, cKey)
+        f_cell(1, 5, f_lvlTxt(seqUp), bgRow, cLvl)
+        f_cell(2, 5, f_lvlTxt(seqDn), bgRow, cLvl)
+
+        f_cell(0, 6, "DISTANCIA DE INVALIDACIÓN", bgRow, cKey)
+        f_cell(1, 6, f_distTxt(seqUp), bgRow, ruidoUp ? cWarn : cLvl)
+        f_cell(2, 6, f_distTxt(seqDn), bgRow, ruidoDn ? cWarn : cLvl)
+
+        f_cell(0, 7, "Aviso",          bgRow, cKey)
+        f_cell(1, 7, f_warnTxt(seqUp), bgRow, cWarn)
+        f_cell(2, 7, f_warnTxt(seqDn), bgRow, cWarn)
+
+        f_cell(0, 8, "Estructura",                   bgRow, cKey)
+        f_cell(1, 8, "HTF " + i_htf + ": " + f_strTxt(htfStruct), bgRow, cNeu)
+        f_cell(2, 8, "Local: " + f_strTxt(locStruct), bgRow, cNeu)
+
+        f_cellT(0, 9, "Perfil", bgRow, cKey, perfTip)
+        f_cellT(1, 9, profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · " + rootU, bgRow, cNeu, perfTip)
+        f_cellT(2, 9, "tol " + str.tostring(tolTicksEff) + "t · desp " + str.tostring(dispTicksEff) + "t · zona " + str.tostring(retestTicksEff) + "t · inval " + str.tostring(minInvEff) + " pts", bgRow, cLvl, perfTip)
 
 // =============================================================================
 // 10 · ALERTAS · sólo cambios de estado estructural, sin lenguaje operativo
