@@ -111,7 +111,12 @@ i_sameLvlPts = input.float(2.0, "Margen para considerar «mismo nivel» (puntos)
 i_showBoxes  = input.bool(true, "Dibujar zonas (barrida, ruptura, retesteo)", group = G_VIS)
 i_showLabels = input.bool(true, "Dibujar etiquetas de fase", group = G_VIS)
 i_showTable  = input.bool(true, "Mostrar panel de estado", group = G_VIS)
-i_panelMode  = input.string("Compacto", "Modo del panel", options = ["Compacto", "Detallado"], group = G_VIS)
+i_panelMode  = input.string("Compacto", "Modo del panel", options = ["Móvil", "Compacto", "Detallado"], group = G_VIS,
+     tooltip = "Móvil: dos columnas y sólo glifos, para pantallas estrechas. " +
+       "Compacto: cinco filas con una palabra. Detallado: la tabla larga.")
+i_panelPos   = input.string("Superior derecha", "Posición del panel", group = G_VIS,
+     options = ["Superior izquierda", "Superior centro", "Superior derecha", "Centro izquierda", "Centro derecha", "Inferior izquierda", "Inferior centro", "Inferior derecha"])
+i_panelSize  = input.string("Mediano", "Tamaño del texto del panel", options = ["Pequeño", "Mediano", "Grande"], group = G_VIS)
 i_symbols    = input.bool(true, "Etiquetas como símbolo (el detalle va en el tooltip)", group = G_VIS)
 i_maxDraw    = input.int(3, "Estructuras recientes a mantener en pantalla", minval = 1, maxval = 20, group = G_VIS)
 cOk   = input.color(#26a69a, "Color · estructura completa y alineada",  group = G_VIS)
@@ -810,6 +815,14 @@ f_warnShort(Seq s) =>
         out := "◌ SIN NUEVA"
     out
 
+f_warnGlyph(Seq s) =>
+    string out = "·"
+    if s.warn != ""
+        out := str.contains(s.warn, "PAUSA") ? SYM_PAUSE : SYM_WARN
+    else if s.r1 and s.phase < 5
+        out := "◌"
+    out
+
 f_distShort(Seq s) =>
     string out = "—"
     if s.phase == 5 and not na(s.dist)
@@ -820,6 +833,10 @@ f_distShort(Seq s) =>
 var table panel = table.new(position.top_right, 3, 10, border_width = 1, frame_width = 1,
      frame_color = color.new(#787b86, 70), border_color = color.new(#787b86, 88))
 
+f_cellS(int col, int row, string txt, color bg, color tc, string tip) =>
+    table.cell(panel, col, row, txt, text_size = size.tiny,
+         text_halign = text.align_left, bgcolor = bg, text_color = tc, tooltip = tip)
+
 f_cellT(int col, int row, string txt, color bg, color tc, string tip) =>
     table.cell(panel, col, row, txt, text_size = size.small,
          text_halign = text.align_left, bgcolor = bg, text_color = tc, tooltip = tip)
@@ -828,8 +845,29 @@ f_cellB(int col, int row, string txt, color bg, color tc, string tip) =>
     table.cell(panel, col, row, txt, text_size = size.normal,
          text_halign = text.align_left, bgcolor = bg, text_color = tc, tooltip = tip)
 
+// Un único punto de escritura: el tamaño lo decide el input, no cada llamada.
+f_put(int col, int row, string txt, color bg, color tc, string tip) =>
+    if i_panelSize == "Pequeño"
+        f_cellS(col, row, txt, bg, tc, tip)
+    else if i_panelSize == "Grande"
+        f_cellB(col, row, txt, bg, tc, tip)
+    else
+        f_cellT(col, row, txt, bg, tc, tip)
+
 f_cell(int col, int row, string txt, color bg, color tc) =>
-    f_cellT(col, row, txt, bg, tc, "")
+    f_put(col, row, txt, bg, tc, "")
+
+f_posSel(string p) =>
+    switch p
+        "Superior izquierda" => position.top_left
+        "Superior centro"    => position.top_center
+        "Superior derecha"   => position.top_right
+        "Centro izquierda"   => position.middle_left
+        "Centro derecha"     => position.middle_right
+        "Inferior izquierda" => position.bottom_left
+        "Inferior centro"    => position.bottom_center
+        "Inferior derecha"   => position.bottom_right
+        => position.top_right
 
 if i_showTable and barstate.islast
     bgHdr = color.new(#1b1f27, 10)
@@ -847,28 +885,46 @@ if i_showTable and barstate.islast
 
     // se limpia siempre para que al cambiar de modo no queden celdas viejas
     table.clear(panel, 0, 0, 2, 9)
+    table.set_position(panel, f_posSel(i_panelPos))
 
-    if i_panelMode == "Compacto"
+    if i_panelMode == "Móvil"
+        // ---------- panel móvil: dos columnas, glifos, sin etiquetas ---------
+        //   Todo el texto largo sigue disponible en el tooltip de cada celda.
+        f_put(0, 0, "SUP", bgHdr, cHdr, "Secuencia nacida de una barrida por arriba" + "\n" + perfTip)
+        f_put(1, 0, "INF", bgHdr, cHdr, "Secuencia nacida de una barrida por abajo" + "\n" + perfTip)
+
+        f_put(0, 1, f_dots(seqUp.phase) + " " + f_phSym(seqUp), bgRow, f_phaseCol(seqUp), tipUp)
+        f_put(1, 1, f_dots(seqDn.phase) + " " + f_phSym(seqDn), bgRow, f_phaseCol(seqDn), tipDn)
+
+        f_put(0, 2, f_ctxSym(ctxUp), bgRow, f_ctxCol(ctxUp), f_ctxTxt(ctxUp))
+        f_put(1, 2, f_ctxSym(ctxDn), bgRow, f_ctxCol(ctxDn), f_ctxTxt(ctxDn))
+
+        f_put(0, 3, f_distShort(seqUp), bgRow, ruidoUp ? cWarn : cLvl, f_distTxt(seqUp))
+        f_put(1, 3, f_distShort(seqDn), bgRow, ruidoDn ? cWarn : cLvl, f_distTxt(seqDn))
+
+        f_put(0, 4, f_warnGlyph(seqUp), bgRow, cWarn, f_warnTxt(seqUp))
+        f_put(1, 4, f_warnGlyph(seqDn), bgRow, cWarn, f_warnTxt(seqDn))
+    else if i_panelMode == "Compacto"
         // ---------- panel compacto: 5 filas, glifos y una palabra ------------
-        f_cellB(0, 0, "◧ ESTRUCTURA", bgHdr, cHdr, perfTip)
-        f_cellB(1, 0, "SUPERIOR",     bgHdr, cHdr, "Secuencia nacida de una barrida por arriba")
-        f_cellB(2, 0, "INFERIOR",     bgHdr, cHdr, "Secuencia nacida de una barrida por abajo")
+        f_put(0, 0, "◧", bgHdr, cHdr, perfTip)
+        f_put(1, 0, "SUPERIOR", bgHdr, cHdr, "Secuencia nacida de una barrida por arriba")
+        f_put(2, 0, "INFERIOR", bgHdr, cHdr, "Secuencia nacida de una barrida por abajo")
 
-        f_cellB(0, 1, "FASE", bgRow, cKey, "Progreso de la secuencia: nivel · barrida · ruptura · retesteo · completa")
-        f_cellB(1, 1, f_dots(seqUp.phase) + "  " + f_phSym(seqUp) + " " + f_phShort(seqUp), bgRow, f_phaseCol(seqUp), tipUp)
-        f_cellB(2, 1, f_dots(seqDn.phase) + "  " + f_phSym(seqDn) + " " + f_phShort(seqDn), bgRow, f_phaseCol(seqDn), tipDn)
+        f_put(0, 1, "FASE", bgRow, cKey, "Progreso de la secuencia: nivel · barrida · ruptura · retesteo · completa")
+        f_put(1, 1, f_dots(seqUp.phase) + " " + f_phSym(seqUp) + " " + f_phShort(seqUp), bgRow, f_phaseCol(seqUp), tipUp)
+        f_put(2, 1, f_dots(seqDn.phase) + " " + f_phSym(seqDn) + " " + f_phShort(seqDn), bgRow, f_phaseCol(seqDn), tipDn)
 
-        f_cellB(0, 2, "CONTEXTO", bgRow, cKey, "EMA, VWAP, EMA HTF, estructura HTF y espacio hasta el próximo nivel")
-        f_cellB(1, 2, f_ctxSym(ctxUp) + " " + f_ctxShort(ctxUp), bgRow, f_ctxCol(ctxUp), f_ctxTxt(ctxUp))
-        f_cellB(2, 2, f_ctxSym(ctxDn) + " " + f_ctxShort(ctxDn), bgRow, f_ctxCol(ctxDn), f_ctxTxt(ctxDn))
+        f_put(0, 2, "CTX", bgRow, cKey, "EMA, VWAP, EMA HTF, estructura HTF y espacio hasta el próximo nivel")
+        f_put(1, 2, f_ctxSym(ctxUp) + " " + f_ctxShort(ctxUp), bgRow, f_ctxCol(ctxUp), f_ctxTxt(ctxUp))
+        f_put(2, 2, f_ctxSym(ctxDn) + " " + f_ctxShort(ctxDn), bgRow, f_ctxCol(ctxDn), f_ctxTxt(ctxDn))
 
-        f_cellB(0, 3, "INVALIDACIÓN", bgRow, cKey, "DISTANCIA DE INVALIDACIÓN en puntos")
-        f_cellB(1, 3, f_distShort(seqUp), bgRow, ruidoUp ? cWarn : cLvl, f_distTxt(seqUp))
-        f_cellB(2, 3, f_distShort(seqDn), bgRow, ruidoDn ? cWarn : cLvl, f_distTxt(seqDn))
+        f_put(0, 3, "INVAL", bgRow, cKey, "DISTANCIA DE INVALIDACIÓN en puntos")
+        f_put(1, 3, f_distShort(seqUp), bgRow, ruidoUp ? cWarn : cLvl, f_distTxt(seqUp))
+        f_put(2, 3, f_distShort(seqDn), bgRow, ruidoDn ? cWarn : cLvl, f_distTxt(seqDn))
 
-        f_cellB(0, 4, "AVISO", bgRow, cKey, "Control de repetición y de estructuras ya explotadas")
-        f_cellB(1, 4, f_warnShort(seqUp), bgRow, cWarn, f_warnTxt(seqUp))
-        f_cellB(2, 4, f_warnShort(seqDn), bgRow, cWarn, f_warnTxt(seqDn))
+        f_put(0, 4, "AVISO", bgRow, cKey, "Control de repetición y de estructuras ya explotadas")
+        f_put(1, 4, f_warnShort(seqUp), bgRow, cWarn, f_warnTxt(seqUp))
+        f_put(2, 4, f_warnShort(seqDn), bgRow, cWarn, f_warnTxt(seqDn))
     else
         // ---------- panel detallado ------------------------------------------
         f_cell(0, 0, "LECTOR ESTRUCTURAL", bgHdr, cHdr)
@@ -907,9 +963,9 @@ if i_showTable and barstate.islast
         f_cell(1, 8, "HTF " + i_htf + ": " + f_strTxt(htfStruct), bgRow, cNeu)
         f_cell(2, 8, "Local: " + f_strTxt(locStruct), bgRow, cNeu)
 
-        f_cellT(0, 9, "Perfil", bgRow, cKey, perfTip)
-        f_cellT(1, 9, profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · " + rootU, bgRow, cNeu, perfTip)
-        f_cellT(2, 9, "tol " + str.tostring(tolTicksEff) + "t · desp " + str.tostring(dispTicksEff) + "t · zona " + str.tostring(retestTicksEff) + "t · inval " + str.tostring(minInvEff) + " pts", bgRow, cLvl, perfTip)
+        f_put(0, 9, "Perfil", bgRow, cKey, perfTip)
+        f_put(1, 9, profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · " + rootU, bgRow, cNeu, perfTip)
+        f_put(2, 9, "tol " + str.tostring(tolTicksEff) + "t · desp " + str.tostring(dispTicksEff) + "t · zona " + str.tostring(retestTicksEff) + "t · inval " + str.tostring(minInvEff) + " pts", bgRow, cLvl, perfTip)
 
 // =============================================================================
 // 10 · ALERTAS · sólo cambios de estado estructural, sin lenguaje operativo

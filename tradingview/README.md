@@ -104,6 +104,27 @@ Con **Modo del panel → Detallado** vuelve la tabla larga de diez filas, con to
 escrito. Con **Etiquetas como símbolo → off**, las marcas del gráfico vuelven a
 mostrar el texto completo.
 
+### En el móvil
+
+La app de TradingView no reescala la tabla, así que un panel ancho se sale de
+pantalla. Para el teléfono:
+
+- **Modo del panel → Móvil**: dos columnas y sólo glifos.
+
+```
+SUP        INF
+●●○○○ ◇    ●●○○○ ◇
+~          ✕
+6.25       —
+‖          ·
+```
+
+- **Posición del panel → Inferior derecha**, para que no tape el nombre del
+  símbolo ni el precio.
+- **Tamaño del texto del panel → Pequeño** si aún así queda justo.
+
+Los tooltips siguen ahí: mantén pulsada la celda para ver el texto completo.
+
 ## Los 9 estados visuales
 
 | Estado | Cuándo aparece | Color |
@@ -256,7 +277,9 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 | Dibujar zonas | `on` | Cajas de barrida y de ruptura/retesteo. |
 | Dibujar etiquetas de fase | `on` | Marcas de fase en el gráfico. |
 | Mostrar panel de estado | `on` | Tabla con el estado de las dos secuencias. |
-| Modo del panel | `Compacto` | `Compacto` (5 filas con glifos y tooltips) o `Detallado` (10 filas con todo el texto). |
+| Modo del panel | `Compacto` | `Móvil` (2 columnas, sólo glifos), `Compacto` (5 filas con una palabra) o `Detallado` (10 filas con todo el texto). |
+| Posición del panel | `Superior derecha` | Las nueve posiciones de TradingView. En el móvil, `Inferior derecha` evita que tape el nombre del símbolo. |
+| Tamaño del texto del panel | `Mediano` | `Pequeño`, `Mediano` o `Grande`. |
 | Etiquetas como símbolo | `on` | `on`: un glifo por marca y el detalle en el tooltip. `off`: texto completo en el gráfico. |
 | Estructuras recientes a mantener en pantalla | `3` | Controla el número de cajas, líneas y etiquetas vivas para no agotar el límite de objetos. |
 | Colores | verde / azul / amarillo / gris | Verde = completa y alineada · azul = completa sin alineación total o fase intermedia · amarillo = fase intermedia y advertencias · gris = niveles e invalidada. |
