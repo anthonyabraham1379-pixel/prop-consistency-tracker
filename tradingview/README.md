@@ -281,6 +281,8 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 | Modo del panel | `Compacto` | `Móvil` (2 columnas, sólo glifos), `Compacto` (5 filas con una palabra) o `Detallado` (10 filas con todo el texto). |
 | Posición del panel | `Superior derecha` | Las nueve posiciones de TradingView. En el móvil, `Inferior derecha` evita que tape el nombre del símbolo. |
 | Tamaño del texto del panel | `Mediano` | `Pequeño`, `Mediano` o `Grande`. |
+| Separación de las marcas respecto a la vela | `0.35` × ATR | Despega los glifos de la mecha. Si dos marcas caen a menos de 3 velas y a la misma altura, la segunda se aparta otro escalón. Sube el valor si tu gráfico va muy comprimido. |
+| Fusionar etiquetas de nivel a menos de | `8` ticks | Dos niveles casi al mismo precio comparten una etiqueta (`PDH · PIV H`) en vez de imprimirse uno encima del otro. |
 | Etiquetas como símbolo | `on` | `on`: un glifo por marca y el detalle en el tooltip. `off`: texto completo en el gráfico. |
 | Estructuras recientes a mantener en pantalla | `3` | Controla el número de cajas, líneas y etiquetas vivas para no agotar el límite de objetos. |
 | Colores | verde / azul / amarillo / gris | Verde = completa y alineada · azul = completa sin alineación total o fase intermedia · amarillo = fase intermedia y advertencias · gris = niveles e invalidada. |
