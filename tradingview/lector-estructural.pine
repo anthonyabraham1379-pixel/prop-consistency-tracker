@@ -50,7 +50,7 @@ G_VIS = "7 · Visual"
 
 // --- 0 · perfil de instrumento -----------------------------------------------
 i_profile = input.string("Auto", "Perfil de instrumento",
-     options = ["Auto", "ES/MES", "NQ/MNQ", "Manual"], group = G_INS,
+     options = ["Auto", "ES/MES", "NQ/MNQ", "GC/MGC", "Manual"], group = G_INS,
      tooltip = "Auto detecta el instrumento con syminfo.root. Si no reconoce la raíz " +
        "usa el perfil Manual, es decir, los valores del grupo 4 y del grupo 5.")
 
@@ -155,19 +155,24 @@ P_NQ_TOL    = 6       // rango razonable 4-8
 P_NQ_DISP   = 16
 P_NQ_RETEST = 16      // rango razonable 12-20
 P_NQ_MININV = 8.0
+P_GC_TOL    = 8       // oro: tick 0.10, así que 8 ticks = 0.80 puntos
+P_GC_DISP   = 25      // 2.50 puntos ≈ media vela de 5m
+P_GC_RETEST = 25      // 2.50 puntos
+P_GC_MININV = 6.0
 
 // Detección por raíz del símbolo. str.tostring() protege el caso de raíz vacía
 // o na: entonces no coincide con nada y se cae al perfil Manual, sin romper.
 rootU  = str.upper(str.tostring(syminfo.root))
 detES  = rootU == "ES" or rootU == "MES"
 detNQ  = rootU == "NQ" or rootU == "MNQ"
-profAuto = detES ? "ES/MES" : detNQ ? "NQ/MNQ" : "Manual"
+detGC  = rootU == "GC" or rootU == "MGC"
+profAuto = detES ? "ES/MES" : detNQ ? "NQ/MNQ" : detGC ? "GC/MGC" : "Manual"
 profUsed = i_profile == "Auto" ? profAuto : i_profile
 
-tolTicksEff    = profUsed == "ES/MES" ? P_ES_TOL    : profUsed == "NQ/MNQ" ? P_NQ_TOL    : i_tolTicks
-dispTicksEff   = profUsed == "ES/MES" ? P_ES_DISP   : profUsed == "NQ/MNQ" ? P_NQ_DISP   : i_dispTicks
-retestTicksEff = profUsed == "ES/MES" ? P_ES_RETEST : profUsed == "NQ/MNQ" ? P_NQ_RETEST : i_maxRetestTicks
-minInvEff      = profUsed == "ES/MES" ? P_ES_MININV : profUsed == "NQ/MNQ" ? P_NQ_MININV : i_minInvPts
+tolTicksEff    = profUsed == "ES/MES" ? P_ES_TOL    : profUsed == "NQ/MNQ" ? P_NQ_TOL    : profUsed == "GC/MGC" ? P_GC_TOL    : i_tolTicks
+dispTicksEff   = profUsed == "ES/MES" ? P_ES_DISP   : profUsed == "NQ/MNQ" ? P_NQ_DISP   : profUsed == "GC/MGC" ? P_GC_DISP   : i_dispTicks
+retestTicksEff = profUsed == "ES/MES" ? P_ES_RETEST : profUsed == "NQ/MNQ" ? P_NQ_RETEST : profUsed == "GC/MGC" ? P_GC_RETEST : i_maxRetestTicks
+minInvEff      = profUsed == "ES/MES" ? P_ES_MININV : profUsed == "NQ/MNQ" ? P_NQ_MININV : profUsed == "GC/MGC" ? P_GC_MININV : i_minInvPts
 
 tick      = syminfo.mintick           // toda la métrica del indicador sale de aquí
 tol       = tolTicksEff    * tick

@@ -46,10 +46,11 @@ cuatro umbrales sensibles al producto:
 |---|---|---|---|---|
 | **ES/MES** | 4 ticks | 12 ticks | 12 ticks | 4,75 puntos |
 | **NQ/MNQ** | 6 ticks (rango útil 4–8) | 16 ticks | 16 ticks (rango útil 12–20) | 8 puntos |
+| **GC/MGC** | 8 ticks (0,80 pts) | 25 ticks (2,50 pts) | 25 ticks (2,50 pts) | 6 puntos |
 | **Manual** | los del grupo 4 | los del grupo 4 | los del grupo 4 | el del grupo 5 |
 | **Auto** | detecta por `syminfo.root` | | | |
 
-`Auto` reconoce las raíces `ES`, `MES`, `NQ` y `MNQ`. Si la raíz es otra, está
+`Auto` reconoce las raíces `ES`, `MES`, `NQ`, `MNQ`, `GC` y `MGC`. Si la raíz es otra, está
 vacía o no se puede leer, cae al perfil **Manual** — nunca falla ni bloquea el
 indicador. El panel muestra siempre el perfil activo, la raíz detectada y los
 cuatro umbrales que se están aplicando, así que no hay ambigüedad.
@@ -319,6 +320,10 @@ confirma cada fase, no durante su formación.
   retesteo 8–12 ticks, pivotes 3/3.
 - **5 minutos:** tolerancia 4 ticks, desplazamiento 12 ticks, zona de retesteo
   12–16 ticks, pivotes 2/2 o 3/3.
+
+**GC / MGC** · tick de 0,10, así que los ticks se acumulan rápido
+- **5 minutos:** tolerancia 8 t (0,80) · desplazamiento 25 t (2,50) · zona 25 t · pivotes 3/3.
+- **1 minuto:** tolerancia 5–8 t · desplazamiento 15–20 t · zona 15–25 t · pivotes 3/3.
 
 **NQ / MNQ** (más ruido por tick, umbrales más anchos)
 - **1 minuto:** tolerancia 6–8 ticks, desplazamiento 16–20 ticks, zona de
