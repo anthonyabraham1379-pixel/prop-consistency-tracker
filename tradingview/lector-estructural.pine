@@ -46,7 +46,8 @@ G_FLT = "3 · Filtros de contexto"
 G_STR = "4 · Detección estructural"
 G_RSK = "5 · Referencias de invalidación"
 G_RPT = "6 · Control de repetición"
-G_VIS = "7 · Visual"
+G_RAD = "7 · Radar de temporalidad superior"
+G_VIS = "8 · Visual"
 
 // --- 0 · perfil de instrumento -----------------------------------------------
 i_profile = input.string("Auto", "Perfil de instrumento",
@@ -107,7 +108,19 @@ i_refBars   = input.int(25, "Longitud de las líneas de referencia (velas)", min
 i_maxFails   = input.int(2, "Fallas en la misma zona antes de avisar pausa", minval = 1, maxval = 10, group = G_RPT)
 i_sameLvlPts = input.float(2.0, "Margen para considerar «mismo nivel» (puntos)", minval = 0.0, step = 0.25, group = G_RPT)
 
-// --- 7 · visual --------------------------------------------------------------
+// --- 7 · radar de temporalidad superior --------------------------------------
+i_useRadar   = input.bool(true, "Activar radar", group = G_RAD,
+     tooltip = "Cuenta condiciones de agotamiento en la vela ya cerrada de otra " +
+       "temporalidad. No predice: solo dice cuántas se cumplen.")
+i_radarTF    = input.timeframe("60", "Temporalidad del radar", group = G_RAD)
+i_radEmaLen  = input.int(20, "· Longitud EMA y ATR del radar", minval = 2, group = G_RAD)
+i_radExtAtr  = input.float(1.5, "· Extensión mínima desde la EMA (× ATR)", minval = 0.1, step = 0.1, group = G_RAD)
+i_radWick    = input.float(0.45, "· Mecha mínima de rechazo en la vela del radar", minval = 0.1, maxval = 0.9, step = 0.05, group = G_RAD)
+i_radRun     = input.int(3, "· Velas consecutivas en la misma dirección", minval = 2, maxval = 20, group = G_RAD)
+i_radLvlTk   = input.int(20, "· Proximidad a un nivel relevante (ticks)", minval = 1, maxval = 400, group = G_RAD)
+i_radMin     = input.int(3, "· Condiciones mínimas para encender el radar", minval = 1, maxval = 4, group = G_RAD)
+
+// --- 8 · visual --------------------------------------------------------------
 i_showBoxes  = input.bool(true, "Dibujar zonas (barrida, ruptura, retesteo)", group = G_VIS)
 i_showLabels = input.bool(true, "Dibujar etiquetas de fase", group = G_VIS)
 i_showTable  = input.bool(true, "Mostrar panel de estado", group = G_VIS)
@@ -143,6 +156,7 @@ SYM_WARN  = "⚠"   // advertencia
 SYM_PAUSE = "‖"   // pausa sugerida
 SYM_R1    = "◐"   // referencia 1R alcanzada
 SYM_OFF   = "○"   // fase no alcanzada
+SYM_RADAR = "◈"   // radar: zona de posible retorno
 
 // =============================================================================
 // 2 · CÁLCULOS BÁSICOS
@@ -355,6 +369,84 @@ ctxDn = f_ctx(false)
 
 f_ctxTxt(st) => st == 2 ? "CONTEXTO ALINEADO" : st == 0 ? "CONTEXTO CONTRARIO" : "CONTEXTO MIXTO"
 f_ctxCol(st) => st == 2 ? cOk : st == 0 ? cWarn : cNeu
+
+// =============================================================================
+// 4b · RADAR DE TEMPORALIDAD SUPERIOR
+// =============================================================================
+//  Responde a una sola pregunta: ¿la vela YA CERRADA de la temporalidad del
+//  radar deja al precio en una zona desde la que suele volver?
+//  No predice nada: cuenta cuántas condiciones objetivas de agotamiento se
+//  cumplen, de 0 a 4, y lo dice. Lo que se haga con eso queda fuera.
+//
+//  Las cuatro condiciones, por lado:
+//    1. Extensión   · el cierre se ha alejado de su EMA más de N × ATR
+//    2. Rechazo     · la vela deja una mecha mínima en ese extremo
+//    3. Racha       · N velas consecutivas en la misma dirección
+//    4. Nivel       · el extremo de la vela está pegado a un nivel relevante
+//
+//  Todo se lee con offset [1] y lookahead_on, es decir, de la vela del radar
+//  ya cerrada: no repinta y no usa datos del futuro.
+
+// ¿Hay algún nivel relevante a menos de tolPx de este precio?
+f_nearLevel(float px, float tolPx) =>
+    bool hit = false
+    if not na(px) and array.size(lvlP) > 0
+        for i = 0 to array.size(lvlP) - 1
+            if math.abs(array.get(lvlP, i) - px) <= tolPx
+                hit := true
+    hit
+
+f_radPack(simple int len, simple int runLen) =>
+    e  = ta.ema(close, len)
+    a  = ta.atr(len)
+    ru = ta.rising(close, runLen)  ? 1 : 0
+    fa = ta.falling(close, runLen) ? 1 : 0
+    [close[1], open[1], high[1], low[1], e[1], a[1], ru[1], fa[1]]
+
+[rC, rO, rH, rL, rEma, rAtr, rRise, rFall] = request.security(syminfo.tickerid, i_radarTF,
+     f_radPack(i_radEmaLen, i_radRun), lookahead = barmerge.lookahead_on)
+
+radRng  = math.max(nz(rH, high) - nz(rL, low), tick)
+radWkUp = (nz(rH, high) - math.max(nz(rO, open), nz(rC, close))) / radRng
+radWkDn = (math.min(nz(rO, open), nz(rC, close)) - nz(rL, low)) / radRng
+radTol  = i_radLvlTk * tick
+radOk   = i_useRadar and not na(rC) and not na(rEma) and not na(rAtr)
+
+// --- lado superior: precio estirado al alza, posible retorno a la baja -------
+rUpExt = radOk and (rC - rEma) >= i_radExtAtr * rAtr
+rUpWck = radOk and radWkUp >= i_radWick
+rUpRun = radOk and nz(rRise, 0) == 1
+rUpLvl = radOk and f_nearLevel(rH, radTol)
+radUp  = (rUpExt ? 1 : 0) + (rUpWck ? 1 : 0) + (rUpRun ? 1 : 0) + (rUpLvl ? 1 : 0)
+
+// --- lado inferior: precio estirado a la baja, posible retorno al alza -------
+rDnExt = radOk and (rEma - rC) >= i_radExtAtr * rAtr
+rDnWck = radOk and radWkDn >= i_radWick
+rDnRun = radOk and nz(rFall, 0) == 1
+rDnLvl = radOk and f_nearLevel(rL, radTol)
+radDn  = (rDnExt ? 1 : 0) + (rDnWck ? 1 : 0) + (rDnRun ? 1 : 0) + (rDnLvl ? 1 : 0)
+
+radOnUp = radOk and radUp >= i_radMin
+radOnDn = radOk and radDn >= i_radMin
+
+// Detalle legible de qué se está cumpliendo, para el tooltip y la etiqueta.
+f_radTip(bool ext, bool wck, bool run, bool lvl, int score) =>
+    "RADAR " + i_radarTF + " · " + str.tostring(score) + "/4" +
+      "\n" + (ext ? "✓" : "·") + " extensión desde la EMA" +
+      "\n" + (wck ? "✓" : "·") + " mecha de rechazo" +
+      "\n" + (run ? "✓" : "·") + " racha de " + str.tostring(i_radRun) + " velas" +
+      "\n" + (lvl ? "✓" : "·") + " pegado a un nivel relevante" +
+      "\n" + (score >= i_radMin ? "ZONA DE POSIBLE RETORNO · esperar estructura en la temporalidad menor" : "sin condiciones suficientes")
+
+radTipUp = f_radTip(rUpExt, rUpWck, rUpRun, rUpLvl, radUp)
+radTipDn = f_radTip(rDnExt, rDnWck, rDnRun, rDnLvl, radDn)
+
+f_radTxt(int score) =>
+    score >= i_radMin ? SYM_RADAR + " RETORNO " + str.tostring(score) + "/4"
+      : score == i_radMin - 1 ? "· VIGILAR " + str.tostring(score) + "/4"
+      : "— " + str.tostring(score) + "/4"
+
+f_radCol(int score) => score >= i_radMin ? cWarn : score == i_radMin - 1 ? cNeu : cLvl
 
 // =============================================================================
 // 5 · GESTIÓN DE OBJETOS GRÁFICOS (límite controlado)
@@ -715,6 +807,14 @@ f_step(Seq s, bool upper, int evt, float elvl, string ename) =>
 evUp = f_step(seqUp, true,  evtUp, lvlUpP, lvlUpN)
 evDn = f_step(seqDn, false, evtDn, lvlDnP, lvlDnN)
 
+// --- marca del radar: sólo en la transición, no en cada vela -----------------
+radFireUp = radOnUp and not radOnUp[1] and confirmed
+radFireDn = radOnDn and not radOnDn[1] and confirmed
+if radFireUp
+    f_tag(bar_index, high, SYM_RADAR, radTipUp, cWarn, false)
+if radFireDn
+    f_tag(bar_index, low,  SYM_RADAR, radTipDn, cWarn, true)
+
 // =============================================================================
 // 8 · NIVELES, FILTROS Y SESIÓN EN EL GRÁFICO
 // =============================================================================
@@ -885,7 +985,7 @@ f_distShort(Seq s) =>
     out
 
 // --- panel -------------------------------------------------------------------
-var table panel = table.new(position.top_right, 3, 10, border_width = 1, frame_width = 1,
+var table panel = table.new(position.top_right, 3, 12, border_width = 1, frame_width = 1,
      frame_color = color.new(#787b86, 70), border_color = color.new(#787b86, 88))
 
 f_cellS(int col, int row, string txt, color bg, color tc, string tip) =>
@@ -939,7 +1039,7 @@ if i_showTable and barstate.islast
     tipDn = f_phaseTxt(seqDn) + "\n" + f_missTxt(seqDn)
 
     // se limpia siempre para que al cambiar de modo no queden celdas viejas
-    table.clear(panel, 0, 0, 2, 9)
+    table.clear(panel, 0, 0, 2, 11)
     table.set_position(panel, f_posSel(i_panelPos))
 
     if i_panelMode == "Móvil"
@@ -959,6 +1059,9 @@ if i_showTable and barstate.islast
 
         f_put(0, 4, f_warnGlyph(seqUp), bgRow, cWarn, f_warnTxt(seqUp))
         f_put(1, 4, f_warnGlyph(seqDn), bgRow, cWarn, f_warnTxt(seqDn))
+
+        f_put(0, 5, (radOnUp ? SYM_RADAR : "·") + str.tostring(radUp), bgRow, f_radCol(radUp), radTipUp)
+        f_put(1, 5, (radOnDn ? SYM_RADAR : "·") + str.tostring(radDn), bgRow, f_radCol(radDn), radTipDn)
     else if i_panelMode == "Compacto"
         // ---------- panel compacto: 5 filas, glifos y una palabra ------------
         f_put(0, 0, "◧", bgHdr, cHdr, perfTip)
@@ -980,6 +1083,10 @@ if i_showTable and barstate.islast
         f_put(0, 4, "AVISO", bgRow, cKey, "Control de repetición y de estructuras ya explotadas")
         f_put(1, 4, f_warnShort(seqUp), bgRow, cWarn, f_warnTxt(seqUp))
         f_put(2, 4, f_warnShort(seqDn), bgRow, cWarn, f_warnTxt(seqDn))
+
+        f_put(0, 5, "RADAR " + i_radarTF, bgRow, cKey, "Condiciones de agotamiento en la vela ya cerrada de la temporalidad del radar")
+        f_put(1, 5, f_radTxt(radUp), bgRow, f_radCol(radUp), radTipUp)
+        f_put(2, 5, f_radTxt(radDn), bgRow, f_radCol(radDn), radTipDn)
     else
         // ---------- panel detallado ------------------------------------------
         f_cell(0, 0, "LECTOR ESTRUCTURAL", bgHdr, cHdr)
@@ -1020,6 +1127,10 @@ if i_showTable and barstate.islast
 
         f_put(0, 9, "Perfil", bgRow, cKey, perfTip)
         f_put(1, 9, profUsed + (i_profile == "Auto" ? " (auto)" : "") + " · " + rootU, bgRow, cNeu, perfTip)
+        f_put(0, 10, "Radar " + i_radarTF, bgRow, cKey, "Condiciones de agotamiento en la vela ya cerrada de la temporalidad del radar")
+        f_put(1, 10, f_radTxt(radUp), bgRow, f_radCol(radUp), radTipUp)
+        f_put(2, 10, f_radTxt(radDn), bgRow, f_radCol(radDn), radTipDn)
+
         f_put(2, 9, "tol " + str.tostring(tolTicksEff) + "t · desp " + str.tostring(dispTicksEff) + "t · zona " + str.tostring(retestTicksEff) + "t · inval " + str.tostring(minInvEff) + " pts", bgRow, cLvl, perfTip)
 
 // =============================================================================
@@ -1036,6 +1147,7 @@ alAplus     = (evUp == 7 and seqUp.ctxDone == 2) or (evDn == 7 and seqDn.ctxDone
 alInvalida  = evUp == 8 or evDn == 8
 alRuido     = (evUp == 7 and nz(seqUp.dist, 999) < minInvEff) or (evDn == 7 and nz(seqDn.dist, 999) < minInvEff)
 alPausa     = (evUp == 8 and seqUp.fails >= i_maxFails) or (evDn == 8 and seqDn.fails >= i_maxFails)
+alRadar     = radFireUp or radFireDn
 
 alertcondition(alNivel,     "NIVEL ALCANZADO",                  "Estructura: el precio alcanzó un nivel de referencia")
 alertcondition(alBarrida,   "POSIBLE BARRIDA",                  "Estructura: posible barrida de liquidez en el nivel")
@@ -1048,3 +1160,4 @@ alertcondition(alAplus,     "ESTRUCTURA A+",                    "Estructura: sec
 alertcondition(alInvalida,  "ESTRUCTURA INVALIDADA",            "Estructura: se perdió el extremo de la barrida")
 alertcondition(alRuido,     "INVALIDACIÓN DEMASIADO CERCANA",   "Estructura: la distancia de invalidación queda dentro del ruido")
 alertcondition(alPausa,     "PAUSA Y ESPERAR NUEVA ESTRUCTURA", "Estructura: fallas repetidas en la misma zona")
+alertcondition(alRadar,     "RADAR · ZONA DE POSIBLE RETORNO",  "Radar de temporalidad superior: se cumplen las condiciones de agotamiento. Revisar la estructura en la temporalidad menor.")

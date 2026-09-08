@@ -180,6 +180,40 @@ Si la distancia de invalidación es menor que el mínimo del perfil activo
 (4,75 puntos en ES/MES, 8 en NQ/MNQ) aparece **INVALIDACIÓN DEMASIADO CERCANA
 AL RUIDO**.
 
+## Radar de temporalidad superior
+
+Contesta a una sola pregunta: **¿la vela ya cerrada de otra temporalidad deja
+al precio en una zona desde la que suele volver?** Es el paso previo a bajar a
+la temporalidad de lectura fina.
+
+No predice. Cuenta cuántas de estas cuatro condiciones objetivas se cumplen,
+por cada lado:
+
+| # | Condición | Qué mira |
+|:--:|---|---|
+| 1 | **Extensión** | El cierre se ha alejado de su EMA más de N × ATR. |
+| 2 | **Rechazo** | La vela deja una mecha mínima en ese extremo. |
+| 3 | **Racha** | N velas consecutivas en la misma dirección. |
+| 4 | **Nivel** | El extremo de la vela está pegado a un nivel relevante. |
+
+El panel muestra el marcador y el estado:
+
+- `— 1/4` — nada que mirar.
+- `· VIGILAR 2/4` — le falta una condición.
+- `◈ RETORNO 3/4` — se cumple el mínimo configurado: **zona de posible retorno,
+  esperar estructura en la temporalidad menor**.
+
+En el gráfico aparece un `◈` cuando el radar se enciende, una sola vez por vela
+del radar, con el desglose en el tooltip. Su alerta es
+`RADAR · ZONA DE POSIBLE RETORNO`.
+
+Flujo típico: radar en `60` mirando desde un gráfico de 5 minutos. El `◈` te
+dice dónde mirar; la secuencia estructural de las cinco fases te dice si el
+movimiento se confirmó. El radar por sí solo no confirma nada.
+
+Como todo lo demás, se lee de la vela HTF **ya cerrada** (`[1]` +
+`lookahead_on`), así que no repinta.
+
 ## Control de repetición
 
 Avisos neutrales, nunca bloquean nada:
@@ -271,7 +305,20 @@ Desactivar un grupo lo quita del gráfico **y** de la detección de barridas.
 | Fallas en la misma zona antes de avisar pausa | `2` | Cuántas estructuras completas invalidadas en la misma zona disparan el aviso de pausa. |
 | Margen para considerar «mismo nivel» (puntos) | `2.0` | Dos niveles dentro de este margen se tratan como el mismo. |
 
-### 7 · Visual
+### 7 · Radar de temporalidad superior
+
+| Input | Por defecto | Para qué sirve |
+|---|---|---|
+| Activar radar | `on` | Enciende o apaga todo el módulo. |
+| Temporalidad del radar | `60` | La temporalidad desde la que se busca el agotamiento. |
+| Longitud EMA y ATR del radar | `20` | Referencia de extensión y de volatilidad. |
+| Extensión mínima desde la EMA | `1.5` × ATR | Cuánto tiene que haberse estirado el precio. |
+| Mecha mínima de rechazo | `0.45` | Proporción del rango de la vela del radar. |
+| Velas consecutivas en la misma dirección | `3` | La racha que cuenta como tramo agotado. |
+| Proximidad a un nivel relevante | `20` ticks | Cuánto puede distar el extremo de la vela del nivel. |
+| Condiciones mínimas para encender | `3` de 4 | El listón. Con 4 el radar se enciende poquísimo; con 2, demasiado. |
+
+### 8 · Visual
 
 | Input | Por defecto | Para qué sirve |
 |---|---|---|
