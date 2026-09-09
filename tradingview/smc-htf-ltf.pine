@@ -150,7 +150,7 @@ f_addPOI(float top, float bot, int side) =>
     t = math.max(top, bot)
     b = math.min(top, bot)
     if t - b >= poiMin
-        bx = box(na)
+        box bx = na
         if i_showPOI
             col = side == 1 ? c_bull : c_bear
             bx := box.new(bar_index, t, bar_index + 8, b,
@@ -162,7 +162,8 @@ f_addPOI(float top, float bot, int side) =>
         array.push(poiBox,  bx)
         while array.size(poiTop) > i_maxPOI * 2
             oldBx = array.shift(poiBox)
-            box.delete(oldBx)
+            if not na(oldBx)
+                box.delete(oldBx)
             array.shift(poiTop)
             array.shift(poiBot)
             array.shift(poiSide)
@@ -204,6 +205,12 @@ f_ctxFVG(int side) =>
             b := h0
     [t, b]
 
+// Las tuplas se resuelven en ámbito global y el bloque de abajo sólo las usa.
+[obCtxUpT, obCtxUpB] = f_lastOpposite(1)
+[obCtxDnT, obCtxDnB] = f_lastOpposite(-1)
+[fvCtxUpT, fvCtxUpB] = f_ctxFVG(1)
+[fvCtxDnT, fvCtxDnB] = f_ctxFVG(-1)
+
 if htfNew and not na(hC)
     bosUp = not na(hPH) and hC > hPH and (na(brokenHi) or hPH != brokenHi)
     bosDn = not na(hPL) and hC < hPL and (na(brokenLo) or hPL != brokenLo)
@@ -215,14 +222,10 @@ if htfNew and not na(hC)
         rngLo    := nz(hPL, hL)
         rngHi    := hH
         ctxBar   := bar_index
-        if i_useOB
-            [obT, obB] = f_lastOpposite(1)
-            if not na(obT)
-                f_addPOI(obT, obB, 1)
-        if i_useFVG
-            [fvT, fvB] = f_ctxFVG(1)
-            if not na(fvT)
-                f_addPOI(fvT, fvB, 1)
+        if i_useOB and not na(obCtxUpT)
+            f_addPOI(obCtxUpT, obCtxUpB, 1)
+        if i_useFVG and not na(fvCtxUpT)
+            f_addPOI(fvCtxUpT, fvCtxUpB, 1)
     else if bosDn
         ctxChoch := ctxBias == 1
         ctxBias  := -1
@@ -230,14 +233,10 @@ if htfNew and not na(hC)
         rngHi    := nz(hPH, hH)
         rngLo    := hL
         ctxBar   := bar_index
-        if i_useOB
-            [obT, obB] = f_lastOpposite(-1)
-            if not na(obT)
-                f_addPOI(obT, obB, -1)
-        if i_useFVG
-            [fvT, fvB] = f_ctxFVG(-1)
-            if not na(fvT)
-                f_addPOI(fvT, fvB, -1)
+        if i_useOB and not na(obCtxDnT)
+            f_addPOI(obCtxDnT, obCtxDnB, -1)
+        if i_useFVG and not na(fvCtxDnT)
+            f_addPOI(fvCtxDnT, fvCtxDnB, -1)
     else
         // el rango sigue respirando mientras no haya evento nuevo
         if ctxBias == 1
@@ -261,13 +260,14 @@ if array.size(poiTop) > 0
         lvl  = i_mitig == "Toque" ? (pS == 1 ? pT : pB) : i_mitig == "50%" ? mid : (pS == 1 ? pB : pT)
         used = pS == 1 ? low <= lvl : high >= lvl
         if used
-            box.delete(array.get(poiBox, i))
+            if not na(array.get(poiBox, i))
+                box.delete(array.get(poiBox, i))
             array.remove(poiTop,  i)
             array.remove(poiBot,  i)
             array.remove(poiSide, i)
             array.remove(poiBar,  i)
             array.remove(poiBox,  i)
-        else if i_showPOI
+        else if i_showPOI and not na(array.get(poiBox, i))
             box.set_right(array.get(poiBox, i), bar_index + 8)
         i -= 1
 
@@ -286,3 +286,361 @@ f_poiHit(int side) =>
                     t := pT
                     b := pB
     [t, b]
+
+// =============================================================================
+// 5 · EJECUCIÓN: estructura y zonas de la temporalidad del gráfico
+// =============================================================================
+lpH = ta.pivothigh(high, i_ltfPiv, i_ltfPiv)
+lpL = ta.pivotlow(low,   i_ltfPiv, i_ltfPiv)
+var float lastLPH = na
+var float lastLPL = na
+if not na(lpH)
+    lastLPH := lpH
+if not na(lpL)
+    lastLPL := lpL
+
+barRng = math.max(high - low, tick)
+wickUp = (high - math.max(open, close)) / barRng
+wickDn = (math.min(open, close) - low)  / barRng
+
+// Order block de ejecución: última vela contraria antes del desplazamiento.
+f_ltfOB(int side, int maxBack) =>
+    float t = na
+    float b = na
+    int i = 1
+    while i <= maxBack and na(t)
+        opposite = side == 1 ? close[i] < open[i] : close[i] > open[i]
+        if opposite
+            t := i_obBody ? math.max(open[i], close[i]) : high[i]
+            b := i_obBody ? math.min(open[i], close[i]) : low[i]
+        i += 1
+    [t, b]
+
+// FVG de ejecución: hueco de tres velas dentro del impulso reciente.
+f_ltfFVG(int side, int maxBack) =>
+    float t = na
+    float b = na
+    int k = 0
+    while k <= maxBack and na(t)
+        if side == 1 and low[k] > high[k + 2]
+            t := low[k]
+            b := high[k + 2]
+        if side == -1 and high[k] < low[k + 2]
+            t := low[k + 2]
+            b := high[k]
+        k += 1
+    [t, b]
+
+[obUpT, obUpB] = f_ltfOB(1, 20)
+[obDnT, obDnB] = f_ltfOB(-1, 20)
+[fvUpT, fvUpB] = f_ltfFVG(1, 12)
+[fvDnT, fvDnB] = f_ltfFVG(-1, 12)
+[hitUpT, hitUpB] = f_poiHit(1)
+[hitDnT, hitDnB] = f_poiHit(-1)
+
+// =============================================================================
+// 6 · MÁQUINA DE EJECUCIÓN
+// =============================================================================
+//  0 esperando POI · 1 en POI · 2 barrida · 3 cambio de carácter
+//  4 zona de entrada · 5 setup confirmado
+var int   stPhase = 0
+var int   stSide  = 0        //  1 demanda · -1 oferta
+var float stPoiT  = na
+var float stPoiB  = na
+var float stExt   = na       //  extremo de la barrida · CONGELADO
+var float stZoneT = na
+var float stZoneB = na
+var float stEntry = na
+var float stInval = na
+var float stTp1   = na
+var float stTp2   = na
+var float stRR    = na
+var int   stBar   = 0
+var string stNote = ""
+
+// --- objetos del setup vivo --------------------------------------------------
+var box   zBox = na
+var line  lnE  = na
+var line  lnI  = na
+var line  ln1  = na
+var line  ln2  = na
+var array<label> gLbl = array.new<label>()
+
+f_lbl(int x, float y, string txt, color c, bool below) =>
+    if i_showLbl
+        l = label.new(x, y, txt, style = below ? label.style_label_up : label.style_label_down,
+             color = color.new(c, 20), textcolor = color.white, size = size.small)
+        array.push(gLbl, l)
+        while array.size(gLbl) > 12
+            label.delete(array.shift(gLbl))
+
+f_clearSetup() =>
+    if not na(zBox)
+        box.delete(zBox)
+    if not na(lnE)
+        line.delete(lnE)
+    if not na(lnI)
+        line.delete(lnI)
+    if not na(ln1)
+        line.delete(ln1)
+    if not na(ln2)
+        line.delete(ln2)
+
+if confirmed
+    // --- caducidad -----------------------------------------------------------
+    if stPhase > 0 and stPhase < 5 and bar_index - stBar > i_maxBars
+        stPhase := 0
+        stSide  := 0
+        stExt   := na
+        stZoneT := na
+        stZoneB := na
+        stNote  := "SECUENCIA EXPIRADA"
+
+    // --- invalidación: se pierde el extremo congelado de la barrida ----------
+    perdido = stPhase >= 2 and not na(stExt) and (stSide == 1 ? close < stExt - bufPx : close > stExt + bufPx)
+    if perdido
+        f_lbl(bar_index, stSide == 1 ? low : high, "✕ INVALIDADO", c_dim, stSide == 1)
+        stPhase := 0
+        stSide  := 0
+        stExt   := na
+        stZoneT := na
+        stZoneB := na
+        stNote  := "SETUP INVALIDADO"
+
+    // --- 0 → 1 · el precio entra en un POI válido ----------------------------
+    else if stPhase == 0
+        sesgoUp = not i_ctxOnly or ctxBias ==  1
+        sesgoDn = not i_ctxOnly or ctxBias == -1
+        zonaUp  = not i_useZone or na(ctxEq) or inDisc
+        zonaDn  = not i_useZone or na(ctxEq) or inPrem
+        okUp = inSes and sesgoUp and zonaUp and not na(hitUpT)
+        okDn = inSes and sesgoDn and zonaDn and not na(hitDnT)
+        if okUp or okDn
+            stSide  := okUp ? 1 : -1
+            stPoiT  := okUp ? hitUpT : hitDnT
+            stPoiB  := okUp ? hitUpB : hitDnB
+            stPhase := i_needSweep ? 1 : 2
+            stExt   := i_needSweep ? na : (okUp ? low : high)
+            stBar   := bar_index
+            stNote  := "EN POI"
+            f_lbl(bar_index, okUp ? low : high, "◆ EN POI", c_ctx, okUp)
+
+    // --- 1 → 2 · barrida de liquidez dentro del POI --------------------------
+    else if stPhase == 1
+        liq  = stSide == 1 ? lastLPL : lastLPH
+        brdUp = not na(liq) and low  < liq - sweepTl and close > liq
+        brdDn = not na(liq) and high > liq + sweepTl and close < liq
+        brd   = stSide == 1 ? brdUp : brdDn
+        if brd
+            stPhase := 2
+            stExt   := stSide == 1 ? low : high      // CONGELADO desde aquí
+            stBar   := bar_index
+            stNote  := "BARRIDA"
+            f_lbl(bar_index, stExt, "◇ BARRIDA", c_warn, stSide == 1)
+
+    // --- 2 → 3 · cambio de carácter a favor del sesgo ------------------------
+    else if stPhase == 2
+        ref  = stSide == 1 ? lastLPH : lastLPL
+        choc = not na(ref) and (stSide == 1 ? close > ref + tick : close < ref - tick)
+        if choc
+            zT = stSide == 1 ? (i_entryFrom == "FVG" ? fvUpT : obUpT) : (i_entryFrom == "FVG" ? fvDnT : obDnT)
+            zB = stSide == 1 ? (i_entryFrom == "FVG" ? fvUpB : obUpB) : (i_entryFrom == "FVG" ? fvDnB : obDnB)
+            // Sin OB ni FVG utilizable, la zona es el 50% del impulso.
+            if i_entryFrom == "50% del impulso" or na(zT) or na(zB)
+                mid  = (stExt + close) / 2
+                half = math.max(poiMin / 2, tick * 2)
+                zT := mid + half
+                zB := mid - half
+            stZoneT := math.max(zT, zB)
+            stZoneB := math.min(zT, zB)
+            stPhase := 4
+            stBar   := bar_index
+            stNote  := "CAMBIO DE CARÁCTER"
+            f_lbl(bar_index, stSide == 1 ? high : low, "▬ CHoCH", c_ctx, stSide != 1)
+
+    // --- 4 → 5 · retesteo de la zona y confirmación --------------------------
+    //     Fuera de la cadena: la vela del CHoCH puede confirmar ya si no se
+    //     exige retesteo, y el retesteo puede rechazar en su propia vela.
+    if stPhase == 4
+        enZona = low <= stZoneT and high >= stZoneB
+        rechUp = close > stZoneT and (close > open or wickDn >= 0.35)
+        rechDn = close < stZoneB and (close < open or wickUp >= 0.35)
+        rech   = stSide == 1 ? rechUp : rechDn
+        listo  = not i_needRetest or (enZona and rech)
+        if listo and inSes
+            entry = close
+            inval = stSide == 1 ? stExt - bufPx : stExt + bufPx
+            risk  = math.abs(entry - inval)
+            // Objetivo 1 · la liquidez más cercana del lado contrario.
+            liqOp = stSide == 1 ? lastLPH : lastLPL
+            tp1u  = math.max(nz(liqOp, entry + risk), entry + risk)
+            tp1d  = math.min(nz(liqOp, entry - risk), entry - risk)
+            tp1   = stSide == 1 ? tp1u : tp1d
+            // Objetivo 2 · el extremo del rango del contexto, si se pidió.
+            tp2d  = stSide == 1 ? entry + 2 * risk : entry - 2 * risk
+            tp2   = i_tp2Liq and not na(rngHi) and not na(rngLo) ? (stSide == 1 ? math.max(rngHi, tp2d) : math.min(rngLo, tp2d)) : tp2d
+            rr    = risk > 0 ? math.abs(tp1 - entry) / risk : 0.0
+            if rr >= i_minRR
+                stEntry := entry
+                stInval := inval
+                stTp1   := tp1
+                stTp2   := tp2
+                stRR    := rr
+                stPhase := 5
+                stBar   := bar_index
+                stNote  := "SETUP CONFIRMADO"
+                if i_showZone
+                    f_clearSetup()
+                    col = stSide == 1 ? c_bull : c_bear
+                    zBox := box.new(bar_index - 2, stZoneT, bar_index + 30, stZoneB,
+                         border_color = color.new(col, 40), bgcolor = color.new(col, 85), border_width = 1)
+                    lnE  := line.new(bar_index, entry, bar_index + 30, entry, color = col, width = 2)
+                    lnI  := line.new(bar_index, inval, bar_index + 30, inval, color = color.new(c_warn, 20), style = line.style_dashed)
+                    ln1  := line.new(bar_index, tp1,   bar_index + 30, tp1,   color = color.new(col, 35), style = line.style_dotted)
+                    ln2  := line.new(bar_index, tp2,   bar_index + 30, tp2,   color = color.new(col, 55), style = line.style_dotted)
+                flecha = stSide == 1 ? "▲" : "▼"
+                aviso  = risk < minStop ? "  ⚠ invalidación estrecha" : ""
+                f_lbl(bar_index, stSide == 1 ? low : high,
+                     flecha + " SETUP CONFIRMADO   R:R " + str.tostring(rr, "#.##") + aviso, col, stSide == 1)
+                f_lbl(bar_index + 30, inval, "INVALIDACIÓN " + str.tostring(risk, format.mintick), c_warn, stSide != 1)
+                f_lbl(bar_index + 30, tp1, "OBJETIVO 1", col, stSide != 1)
+                f_lbl(bar_index + 30, tp2, "OBJETIVO 2", col, stSide != 1)
+            else
+                f_lbl(bar_index, stSide == 1 ? low : high, "R:R INSUFICIENTE " + str.tostring(rr, "#.##"), c_dim, stSide == 1)
+                stPhase := 0
+                stSide  := 0
+                stExt   := na
+                stZoneT := na
+                stZoneB := na
+                stNote  := "R:R INSUFICIENTE"
+
+    // --- 5 · seguimiento del setup vivo --------------------------------------
+    if stPhase == 5
+        tocado1 = stSide == 1 ? high >= stTp1 : low <= stTp1
+        tocado2 = stSide == 1 ? high >= stTp2 : low <= stTp2
+        if tocado2
+            f_lbl(bar_index, stSide == 1 ? high : low, "◎ OBJETIVO 2", stSide == 1 ? c_bull : c_bear, stSide != 1)
+            stPhase := 0
+            stSide  := 0
+            stExt   := na
+            stZoneT := na
+            stZoneB := na
+            stNote  := "OBJETIVO 2 ALCANZADO"
+        else if tocado1 and stNote == "SETUP CONFIRMADO"
+            stNote := "OBJETIVO 1 ALCANZADO"
+            f_lbl(bar_index, stSide == 1 ? high : low, "◐ OBJETIVO 1", stSide == 1 ? c_bull : c_bear, stSide != 1)
+        else if stSide == 1 ? close < stInval : close > stInval
+            f_lbl(bar_index, stSide == 1 ? low : high, "✕ INVALIDADO", c_dim, stSide == 1)
+            stPhase := 0
+            stSide  := 0
+            stExt   := na
+            stZoneT := na
+            stZoneB := na
+            stNote  := "SETUP INVALIDADO"
+
+// =============================================================================
+// 7 · CONTEXTO EN EL GRÁFICO
+// =============================================================================
+plot(not na(rngHi) ? rngHi : na, "Rango · alto",  color = color.new(c_ctx, 45), style = plot.style_linebr)
+plot(not na(rngLo) ? rngLo : na, "Rango · bajo",  color = color.new(c_ctx, 45), style = plot.style_linebr)
+plot(not na(ctxEq) ? ctxEq : na, "Equilibrio",    color = color.new(c_dim, 40), style = plot.style_linebr)
+bgcolor(i_useSes and inSes ? color.new(c_ctx, 95) : na, title = "Franja horaria")
+
+// =============================================================================
+// 8 · PANEL
+// =============================================================================
+f_pos(string p) =>
+    switch p
+        "Superior izquierda" => position.top_left
+        "Superior derecha"   => position.top_right
+        "Inferior izquierda" => position.bottom_left
+        "Inferior derecha"   => position.bottom_right
+        => position.top_right
+
+f_phTxt() =>
+    switch stPhase
+        0 => stNote == "" ? "ESPERANDO POI" : stNote
+        1 => "EN POI · falta barrida"
+        2 => "BARRIDA · falta CHoCH"
+        4 => "ZONA DE ENTRADA · falta retesteo"
+        5 => stNote
+        => "—"
+
+f_phCol() =>
+    switch stPhase
+        0 => c_dim
+        1 => c_ctx
+        2 => c_warn
+        4 => c_ctx
+        5 => stSide == 1 ? c_bull : c_bear
+        => c_dim
+
+nDem = 0
+nOfe = 0
+if array.size(poiSide) > 0
+    for i = 0 to array.size(poiSide) - 1
+        if array.get(poiSide, i) == 1
+            nDem += 1
+        else
+            nOfe += 1
+
+var table pnl = table.new(position.top_right, 2, 7, border_width = 1, frame_width = 1,
+     frame_color = color.new(#787b86, 70), border_color = color.new(#787b86, 88))
+
+f_cel(int c, int r, string t, color bg, color tc, string tip) =>
+    table.cell(pnl, c, r, t, text_size = size.small, text_halign = text.align_left,
+         bgcolor = bg, text_color = tc, tooltip = tip)
+
+if i_showTbl and barstate.islast
+    bgH = color.new(#1b1f27, 10)
+    bgR = color.new(#12151b, 20)
+    cK  = color.new(color.white, 45)
+    table.set_position(pnl, f_pos(i_tblPos))
+
+    sesgoTxt = ctxBias == 1 ? "▲ ALCISTA" : ctxBias == -1 ? "▼ BAJISTA" : "— SIN DEFINIR"
+    sesgoCol = ctxBias == 1 ? c_bull : ctxBias == -1 ? c_bear : c_dim
+    zonaTxt  = na(ctxEq) ? "—" : inDisc ? "DISCOUNT" : inPrem ? "PREMIUM" : "EQUILIBRIO"
+
+    f_cel(0, 0, "SMC " + i_htf + " → " + timeframe.period, bgH, color.new(color.white, 20),
+         "Contexto en " + i_htf + ", ejecución en la temporalidad del gráfico")
+    f_cel(1, 0, ctxChoch ? "CHoCH" : "BOS", bgH, color.new(color.white, 20), "Último evento estructural del contexto")
+
+    f_cel(0, 1, "SESGO",  bgR, cK, "Dirección de la última ruptura de estructura del contexto")
+    f_cel(1, 1, sesgoTxt, bgR, sesgoCol, "")
+
+    f_cel(0, 2, "ZONA",  bgR, cK, "Posición del precio dentro del rango del contexto")
+    f_cel(1, 2, zonaTxt, bgR, c_ctx, "")
+
+    f_cel(0, 3, "POI VIVOS", bgR, cK, "Zonas de interés del contexto sin mitigar")
+    f_cel(1, 3, str.tostring(nDem) + " demanda · " + str.tostring(nOfe) + " oferta", bgR, c_dim, "")
+
+    f_cel(0, 4, "FASE",     bgR, cK, "Progreso de la secuencia de ejecución")
+    f_cel(1, 4, f_phTxt(),  bgR, f_phCol(), "")
+
+    f_cel(0, 5, "ENTRADA / INVAL", bgR, cK, "Referencias del setup vivo")
+    f_cel(1, 5, stPhase == 5 and not na(stEntry) ? str.tostring(stEntry, format.mintick) + "  ✕ " + str.tostring(stInval, format.mintick) : "—", bgR, c_dim, "")
+
+    f_cel(0, 6, "R:R",  bgR, cK, "Riesgo frente al primer objetivo")
+    f_cel(1, 6, stPhase == 5 and not na(stRR) ? str.tostring(stRR, "#.##") + (math.abs(stEntry - stInval) < minStop ? "  ⚠" : "") : "—",
+         bgR, stPhase == 5 and stRR >= i_minRR ? c_bull : c_dim, "")
+
+// =============================================================================
+// 9 · ALERTAS
+// =============================================================================
+evPOI    = (stPhase == 1 or stPhase == 2) and stPhase[1] == 0
+evSweep  = stPhase == 2 and stPhase[1] == 1
+evChoch  = stPhase == 4 and stPhase[1] == 2
+evSetup  = stPhase == 5 and stPhase[1] == 4
+evSetupU = evSetup and stSide == 1
+evSetupD = evSetup and stSide == -1
+evInval  = stPhase == 0 and stPhase[1] >= 2 and stNote == "SETUP INVALIDADO"
+evTp1    = stPhase == 5 and stNote == "OBJETIVO 1 ALCANZADO" and stNote[1] != "OBJETIVO 1 ALCANZADO"
+
+alertcondition(evPOI,    "POI ALCANZADO",     "SMC: el precio entró en una zona de interés del contexto")
+alertcondition(evSweep,  "BARRIDA",           "SMC: barrida de liquidez dentro del POI")
+alertcondition(evChoch,  "CAMBIO DE CARÁCTER","SMC: cambio de carácter a favor del sesgo del contexto")
+alertcondition(evSetup,  "SETUP CONFIRMADO",  "SMC: secuencia completa con R:R suficiente")
+alertcondition(evSetupU, "SETUP CONFIRMADO ▲","SMC: secuencia completa desde una zona de demanda")
+alertcondition(evSetupD, "SETUP CONFIRMADO ▼","SMC: secuencia completa desde una zona de oferta")
+alertcondition(evTp1,    "OBJETIVO 1",        "SMC: el precio alcanzó el primer objetivo")
+alertcondition(evInval,  "SETUP INVALIDADO",  "SMC: se perdió el extremo de la barrida")
