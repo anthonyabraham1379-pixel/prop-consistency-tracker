@@ -489,9 +489,10 @@ if confirmed
                 stPhase := 5
                 stBar   := bar_index
                 stNote  := "SETUP CONFIRMADO"
+                // col se declara FUERA del if: también lo usan las etiquetas
+                col = stSide == 1 ? c_bull : c_bear
                 if i_showZone
                     f_clearSetup()
-                    col = stSide == 1 ? c_bull : c_bear
                     zBox := box.new(bar_index - 2, stZoneT, bar_index + 30, stZoneB,
                          border_color = color.new(col, 40), bgcolor = color.new(col, 85), border_width = 1)
                     lnE  := line.new(bar_index, entry, bar_index + 30, entry, color = col, width = 2)
